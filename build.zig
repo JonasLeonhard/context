@@ -51,7 +51,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/tests.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -63,4 +63,17 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    // PERF: https://kristoff.it/blog/improving-your-zls-experience/
+    // we dont call install installArtifact for this,
+    // that means that Zig will analyze your code (and report any error) but it won't bother calling into LLVM since you don't plan to install the executable.
+    const exe_check = b.addExecutable(.{
+        .name = "context",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const check = b.step("check", "Check for successful compilation");
+    check.dependOn(&exe_check.step);
+    check.dependOn(&exe_unit_tests.step);
 }
