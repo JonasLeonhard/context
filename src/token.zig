@@ -7,30 +7,9 @@ pub const TokenType = enum {
     // Indentifiers + literals
     ident,
 
-    // TODO: what do i really need here?
-    // types: numbers
-    int,
-    float,
-    usize,
-    u128,
-    u64,
-    u32,
-    u16,
-    u8,
-    isize,
-    i128,
-    i64,
-    i32,
-    i16,
-    i8,
-    f128,
-    f64,
-    f32,
-    f16,
-    f8,
-
-    // types: strings
-    string,
+    int, // digits -> they will later
+    string, // datastructure for []u8 utf-8 strings, basicly []u8 but with extra methods
+    char, // 'a' single bit representation of a string as u8
 
     // Operators
     plus,
@@ -51,7 +30,7 @@ pub const TokenType = enum {
     declaration, // :
     mutable, // mut
     block_return, // return
-    return_block, // =>
+    fn_return, // TODO: rename? | =>
 };
 
 const ident_map = std.StaticStringMap(TokenType).initComptime(.{

@@ -29,8 +29,15 @@ pub const Lexer = struct {
 
         switch (self.char) {
             '=' => {
-                tok.type = token.TokenType.assign;
-                tok.literal = "=";
+                const peeked = self.peek(1);
+                if (peeked == '>') {
+                    tok.type = token.TokenType.fn_return;
+                    tok.literal = "=>";
+                    self.readChar();
+                } else {
+                    tok.type = token.TokenType.assign;
+                    tok.literal = "=";
+                }
             },
             ';' => {
                 tok.type = token.TokenType.semi_colon;
@@ -119,6 +126,16 @@ pub const Lexer = struct {
         return self.input[position..self.position];
     }
 
+    fn peek(self: Lexer, offset: usize) u8 {
+        const index = self.position + offset;
+
+        if (index < self.input.len - 1) {
+            return self.input[index];
+        }
+
+        return 0;
+    }
+
     fn skipWhiteSpace(self: *Lexer) void {
         while (self.char == ' ' or self.char == '\t' or self.char == '\n' or self.char == '\r') {
             self.readChar();
@@ -153,7 +170,7 @@ test "Next Token" {
         .{ .type = token.TokenType.mutable, .literal = "mut" },
         .{ .type = token.TokenType.ident, .literal = "ten" },
         .{ .type = token.TokenType.declaration, .literal = ":" },
-        .{ .type = token.TokenType.usize, .literal = "usize" },
+        .{ .type = token.TokenType.ident, .literal = "usize" },
         .{ .type = token.TokenType.assign, .literal = "=" },
         .{ .type = token.TokenType.int, .literal = "10" },
         .{ .type = token.TokenType.semi_colon, .literal = ";" },
@@ -163,13 +180,13 @@ test "Next Token" {
         .{ .type = token.TokenType.l_paren, .literal = "(" },
         .{ .type = token.TokenType.ident, .literal = "x" },
         .{ .type = token.TokenType.declaration, .literal = ":" },
-        .{ .type = token.TokenType.usize, .literal = "usize" },
+        .{ .type = token.TokenType.ident, .literal = "usize" },
         .{ .type = token.TokenType.comma, .literal = "," },
         .{ .type = token.TokenType.ident, .literal = "y" },
         .{ .type = token.TokenType.declaration, .literal = ":" },
-        .{ .type = token.TokenType.usize, .literal = "usize" },
+        .{ .type = token.TokenType.ident, .literal = "usize" },
         .{ .type = token.TokenType.r_paren, .literal = ")" },
-        .{ .type = token.TokenType.return_block, .literal = "=>" },
+        .{ .type = token.TokenType.fn_return, .literal = "=>" },
         .{ .type = token.TokenType.l_brace, .literal = "{" },
         .{ .type = token.TokenType.block_return, .literal = "return" },
         .{ .type = token.TokenType.ident, .literal = "x" },
@@ -191,10 +208,10 @@ test "Next Token" {
 
     var lexer = Lexer.init(input);
 
-    std.debug.print("\n-\n", .{}); // TODO: this adds a new line for testing output. How to do this better?
-    inline for (0.., tests) |i, test_item| {
+    // std.debug.print("\n-\n", .{}); // TODO: this adds a new line for testing output. How to do this better?, TODO: add this print without the test failing
+    inline for (tests) |test_item| {
         const tok = lexer.nextToken();
-        std.debug.print("{}.token: Type: {}, Literal: {s}\n", .{ i, tok.type, tok.literal });
+        // std.debug.print("{}.token: Type: {}, Literal: {s}\n", .{ i, tok.type, tok.literal });
 
         try testing.expectEqual(test_item.type, tok.type);
         try testing.expectEqualStrings(test_item.literal, tok.literal);
