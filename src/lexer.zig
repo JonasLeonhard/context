@@ -33,7 +33,7 @@ pub const Lexer = struct {
                 tok.literal = "";
             },
             '=' => {
-                const peeked = self.peek(1);
+                const peeked = self.peek(0);
                 switch (peeked) {
                     '>' => {
                         tok.type = token.TokenType.fn_return;
@@ -52,7 +52,7 @@ pub const Lexer = struct {
                 }
             },
             ':' => {
-                const peeked = self.peek(1);
+                const peeked = self.peek(0);
                 if (peeked == '=') {
                     tok.type = token.TokenType.declare_assign;
                     tok.literal = ":=";
@@ -71,7 +71,7 @@ pub const Lexer = struct {
                 tok.literal = "-";
             },
             '!' => {
-                const peeked = self.peek(1);
+                const peeked = self.peek(0);
 
                 switch (peeked) {
                     '=' => {
@@ -127,13 +127,13 @@ pub const Lexer = struct {
             },
             else => {
                 if (Lexer.isLetter(self.char)) {
-                    const ident = self.readIdentifier();
+                    const ident = self.eatIdentifier();
                     tok.literal = ident;
                     tok.type = token.Token.lookupIdent(ident);
                     return tok; // INFO: readIdentifier advances the next char, so we have to return here!
                 } else if (Lexer.isDigit(self.char)) {
                     tok.type = token.TokenType.int;
-                    tok.literal = self.readNumber();
+                    tok.literal = self.eatNumber();
                     return tok; // INFO: readNumber advances the next char, so we have to return here!
                 }
             },
@@ -156,7 +156,7 @@ pub const Lexer = struct {
     }
 
     // read a whole TokenType.ident if we found a letter
-    fn readIdentifier(self: *Lexer) []const u8 {
+    fn eatIdentifier(self: *Lexer) []const u8 {
         const position = self.position;
 
         while (Lexer.isLetter(self.char)) {
@@ -166,7 +166,7 @@ pub const Lexer = struct {
         return self.input[position..self.position];
     }
 
-    fn readNumber(self: *Lexer) []const u8 {
+    fn eatNumber(self: *Lexer) []const u8 {
         const position = self.position;
 
         while (Lexer.isDigit(self.char)) {
@@ -176,8 +176,9 @@ pub const Lexer = struct {
         return self.input[position..self.position];
     }
 
+    /// peeks from the current read_position
     fn peek(self: Lexer, look_ahead: usize) u8 {
-        const index = self.position + look_ahead;
+        const index = self.read_position + look_ahead;
 
         if (index < self.input.len - 1) {
             return self.input[index];
