@@ -68,8 +68,15 @@ pub const Lexer = struct {
                 tok.literal = "}";
             },
             ':' => {
-                tok.type = token.TokenType.declaration;
-                tok.literal = ":";
+                const peeked = self.peek(1);
+                if (peeked == '=') {
+                    tok.type = token.TokenType.declare_assign;
+                    tok.literal = ":=";
+                    self.readChar();
+                } else {
+                    tok.type = token.TokenType.declaration;
+                    tok.literal = ":";
+                }
             },
             0 => {
                 tok.type = token.TokenType.eof;
@@ -163,8 +170,7 @@ test "Next Token" {
 
     const tests = .{
         .{ .type = token.TokenType.ident, .literal = "five" },
-        .{ .type = token.TokenType.declaration, .literal = ":" },
-        .{ .type = token.TokenType.assign, .literal = "=" },
+        .{ .type = token.TokenType.declare_assign, .literal = ":=" },
         .{ .type = token.TokenType.int, .literal = "5" },
         .{ .type = token.TokenType.semi_colon, .literal = ";" },
         .{ .type = token.TokenType.mutable, .literal = "mut" },
@@ -175,8 +181,7 @@ test "Next Token" {
         .{ .type = token.TokenType.int, .literal = "10" },
         .{ .type = token.TokenType.semi_colon, .literal = ";" },
         .{ .type = token.TokenType.ident, .literal = "add_stuff" },
-        .{ .type = token.TokenType.declaration, .literal = ":" },
-        .{ .type = token.TokenType.assign, .literal = "=" },
+        .{ .type = token.TokenType.declare_assign, .literal = ":=" },
         .{ .type = token.TokenType.l_paren, .literal = "(" },
         .{ .type = token.TokenType.ident, .literal = "x" },
         .{ .type = token.TokenType.declaration, .literal = ":" },
@@ -196,8 +201,7 @@ test "Next Token" {
         .{ .type = token.TokenType.r_brace, .literal = "}" },
         .{ .type = token.TokenType.semi_colon, .literal = ";" },
         .{ .type = token.TokenType.ident, .literal = "result" },
-        .{ .type = token.TokenType.declaration, .literal = ":" },
-        .{ .type = token.TokenType.assign, .literal = "=" },
+        .{ .type = token.TokenType.declare_assign, .literal = ":=" },
         .{ .type = token.TokenType.ident, .literal = "add_stuff" },
         .{ .type = token.TokenType.l_paren, .literal = "(" },
         .{ .type = token.TokenType.ident, .literal = "five" },

@@ -28,6 +28,7 @@ pub const TokenType = enum {
     function, // () => {}
     assign, // =
     declaration, // :
+    declare_assign, // :=
     mutable, // mut
     block_return, // return
     fn_return, // TODO: rename? | =>
