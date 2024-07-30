@@ -12,8 +12,19 @@ pub const TokenType = enum {
     char, // 'a' single bit representation of a string as u8
 
     // Operators
+    assign, // =
+    declaration, // :
+    declare_assign, // :=
     plus,
     minus,
+    bang,
+    asterisk,
+    slash,
+
+    lt, // <
+    gt, // >
+    equal, // ==
+    not_equal, // !=
 
     // Delimiters
     comma,
@@ -24,19 +35,29 @@ pub const TokenType = enum {
     l_brace,
     r_brace,
 
+    function, // () => {} TODO: use
+    fn_return, // TODO: rename? | =>
+
     // Keywords
-    function, // () => {}
-    assign, // =
-    declaration, // :
-    declare_assign, // :=
     mutable, // mut
     block_return, // return
-    fn_return, // TODO: rename? | =>
+    true,
+    false,
+    if_,
+    else_,
+    and_,
+    or_,
 };
 
 const ident_map = std.StaticStringMap(TokenType).initComptime(.{
     .{ "mut", TokenType.mutable },
     .{ "return", TokenType.block_return },
+    .{ "true", TokenType.true },
+    .{ "false", TokenType.false },
+    .{ "if", TokenType.if_ },
+    .{ "else", TokenType.else_ },
+    .{ "and", TokenType.and_ },
+    .{ "or", TokenType.or_ },
 });
 
 pub const Token = struct {
