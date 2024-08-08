@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
-const token = @import("token.zig");
+const Token = @import("token.zig").Token;
+const TokenType = @import("token.zig").TokenType;
 
 pub const Lexer = struct {
     input: []const u8,
@@ -22,31 +23,31 @@ pub const Lexer = struct {
         return lexer;
     }
 
-    pub fn nextToken(self: *Lexer) token.Token {
-        var tok = token.Token{ .type = token.TokenType.illegal, .literal = &[_]u8{self.char} };
+    pub fn nextToken(self: *Lexer) Token {
+        var tok = Token{ .type = TokenType.illegal, .literal = &[_]u8{self.char} };
 
         self.skipWhiteSpace();
 
         switch (self.char) {
             0 => {
-                tok.type = token.TokenType.eof;
+                tok.type = TokenType.eof;
                 tok.literal = "";
             },
             '=' => {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '>' => {
-                        tok.type = token.TokenType.fn_return;
+                        tok.type = TokenType.fn_return;
                         tok.literal = "=>";
                         self.eatChar();
                     },
                     '=' => {
-                        tok.type = token.TokenType.equal;
+                        tok.type = TokenType.equal;
                         tok.literal = "==";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = token.TokenType.assign;
+                        tok.type = TokenType.assign;
                         tok.literal = "=";
                     },
                 }
@@ -54,20 +55,20 @@ pub const Lexer = struct {
             ':' => {
                 const peeked = self.peek(0);
                 if (peeked == '=') {
-                    tok.type = token.TokenType.declare_assign;
+                    tok.type = TokenType.declare_assign;
                     tok.literal = ":=";
                     self.eatChar();
                 } else {
-                    tok.type = token.TokenType.declaration;
+                    tok.type = TokenType.declaration;
                     tok.literal = ":";
                 }
             },
             '+' => {
-                tok.type = token.TokenType.plus;
+                tok.type = TokenType.plus;
                 tok.literal = "+";
             },
             '-' => {
-                tok.type = token.TokenType.minus;
+                tok.type = TokenType.minus;
                 tok.literal = "-";
             },
             '!' => {
@@ -75,64 +76,64 @@ pub const Lexer = struct {
 
                 switch (peeked) {
                     '=' => {
-                        tok.type = token.TokenType.not_equal;
+                        tok.type = TokenType.not_equal;
                         tok.literal = "!=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = token.TokenType.bang;
+                        tok.type = TokenType.bang;
                         tok.literal = "!";
                     },
                 }
             },
             '*' => {
-                tok.type = token.TokenType.asterisk;
+                tok.type = TokenType.asterisk;
                 tok.literal = "*";
             },
             '/' => {
-                tok.type = token.TokenType.slash;
+                tok.type = TokenType.slash;
                 tok.literal = "/";
             },
             '<' => {
-                tok.type = token.TokenType.lt;
+                tok.type = TokenType.lt;
                 tok.literal = "<";
             },
             '>' => {
-                tok.type = token.TokenType.gt;
+                tok.type = TokenType.gt;
                 tok.literal = ">";
             },
             ',' => {
-                tok.type = token.TokenType.comma;
+                tok.type = TokenType.comma;
                 tok.literal = ",";
             },
             ';' => {
-                tok.type = token.TokenType.semi_colon;
+                tok.type = TokenType.semi_colon;
                 tok.literal = ";";
             },
             '(' => {
-                tok.type = token.TokenType.l_paren;
+                tok.type = TokenType.l_paren;
                 tok.literal = "(";
             },
             ')' => {
-                tok.type = token.TokenType.r_paren;
+                tok.type = TokenType.r_paren;
                 tok.literal = ")";
             },
             '{' => {
-                tok.type = token.TokenType.l_brace;
+                tok.type = TokenType.l_brace;
                 tok.literal = "{";
             },
             '}' => {
-                tok.type = token.TokenType.r_brace;
+                tok.type = TokenType.r_brace;
                 tok.literal = "}";
             },
             else => {
                 if (Lexer.isLetter(self.char)) {
                     const ident = self.eatIdentifier();
                     tok.literal = ident;
-                    tok.type = token.Token.lookupIdent(ident);
+                    tok.type = Token.lookupIdent(ident);
                     return tok; // INFO: readIdentifier advances the next char, so we have to return here!
                 } else if (Lexer.isDigit(self.char)) {
-                    tok.type = token.TokenType.int;
+                    tok.type = TokenType.int;
                     tok.literal = self.eatNumber();
                     return tok; // INFO: readNumber advances the next char, so we have to return here!
                 }
@@ -180,7 +181,7 @@ pub const Lexer = struct {
     fn peek(self: Lexer, look_ahead: usize) u8 {
         const index = self.read_position + look_ahead;
 
-        if (index < self.input.len - 1) {
+        if (index < self.input.len - 1 and index > 0) {
             return self.input[index];
         }
 
@@ -219,75 +220,75 @@ test "Next Token" {
     ;
 
     const tests = .{
-        .{ .type = token.TokenType.ident, .literal = "five" },
-        .{ .type = token.TokenType.declare_assign, .literal = ":=" },
-        .{ .type = token.TokenType.int, .literal = "5" },
-        .{ .type = token.TokenType.semi_colon, .literal = ";" },
-        .{ .type = token.TokenType.mutable, .literal = "mut" },
-        .{ .type = token.TokenType.ident, .literal = "ten" },
-        .{ .type = token.TokenType.declaration, .literal = ":" },
-        .{ .type = token.TokenType.ident, .literal = "usize" },
-        .{ .type = token.TokenType.assign, .literal = "=" },
-        .{ .type = token.TokenType.int, .literal = "10" },
-        .{ .type = token.TokenType.semi_colon, .literal = ";" },
-        .{ .type = token.TokenType.ident, .literal = "add_stuff" },
-        .{ .type = token.TokenType.declare_assign, .literal = ":=" },
-        .{ .type = token.TokenType.l_paren, .literal = "(" },
-        .{ .type = token.TokenType.ident, .literal = "x" },
-        .{ .type = token.TokenType.declaration, .literal = ":" },
-        .{ .type = token.TokenType.ident, .literal = "usize" },
-        .{ .type = token.TokenType.comma, .literal = "," },
-        .{ .type = token.TokenType.ident, .literal = "y" },
-        .{ .type = token.TokenType.declaration, .literal = ":" },
-        .{ .type = token.TokenType.ident, .literal = "usize" },
-        .{ .type = token.TokenType.r_paren, .literal = ")" },
-        .{ .type = token.TokenType.fn_return, .literal = "=>" },
-        .{ .type = token.TokenType.l_brace, .literal = "{" },
-        .{ .type = token.TokenType.block_return, .literal = "return" },
-        .{ .type = token.TokenType.ident, .literal = "x" },
-        .{ .type = token.TokenType.plus, .literal = "+" },
-        .{ .type = token.TokenType.ident, .literal = "y" },
-        .{ .type = token.TokenType.semi_colon, .literal = ";" },
-        .{ .type = token.TokenType.r_brace, .literal = "}" },
-        .{ .type = token.TokenType.semi_colon, .literal = ";" },
-        .{ .type = token.TokenType.ident, .literal = "result" },
-        .{ .type = token.TokenType.declare_assign, .literal = ":=" },
-        .{ .type = token.TokenType.ident, .literal = "add_stuff" },
-        .{ .type = token.TokenType.l_paren, .literal = "(" },
-        .{ .type = token.TokenType.ident, .literal = "five" },
-        .{ .type = token.TokenType.comma, .literal = "," },
-        .{ .type = token.TokenType.ident, .literal = "ten" },
-        .{ .type = token.TokenType.r_paren, .literal = ")" },
-        .{ .type = token.TokenType.semi_colon, .literal = ";" },
-        .{ .type = token.TokenType.bang, .literal = "!" },
-        .{ .type = token.TokenType.minus, .literal = "-" },
-        .{ .type = token.TokenType.slash, .literal = "/" },
-        .{ .type = token.TokenType.asterisk, .literal = "*" },
-        .{ .type = token.TokenType.int, .literal = "5" },
-        .{ .type = token.TokenType.semi_colon, .literal = ";" },
-        .{ .type = token.TokenType.if_, .literal = "if" },
-        .{ .type = token.TokenType.ident, .literal = "ten" },
-        .{ .type = token.TokenType.lt, .literal = "<" },
-        .{ .type = token.TokenType.int, .literal = "11" },
-        .{ .type = token.TokenType.and_, .literal = "and" },
-        .{ .type = token.TokenType.ident, .literal = "ten" },
-        .{ .type = token.TokenType.gt, .literal = ">" },
-        .{ .type = token.TokenType.int, .literal = "9" },
-        .{ .type = token.TokenType.or_, .literal = "or" },
-        .{ .type = token.TokenType.false, .literal = "false" },
-        .{ .type = token.TokenType.l_brace, .literal = "{" },
-        .{ .type = token.TokenType.block_return, .literal = "return" },
-        .{ .type = token.TokenType.true, .literal = "true" },
-        .{ .type = token.TokenType.semi_colon, .literal = ";" },
-        .{ .type = token.TokenType.r_brace, .literal = "}" },
-        .{ .type = token.TokenType.int, .literal = "10" },
-        .{ .type = token.TokenType.equal, .literal = "==" },
-        .{ .type = token.TokenType.int, .literal = "10" },
-        .{ .type = token.TokenType.semi_colon, .literal = ";" },
-        .{ .type = token.TokenType.int, .literal = "10" },
-        .{ .type = token.TokenType.not_equal, .literal = "!=" },
-        .{ .type = token.TokenType.int, .literal = "901" },
-        .{ .type = token.TokenType.semi_colon, .literal = ";" },
+        .{ .type = TokenType.ident, .literal = "five" },
+        .{ .type = TokenType.declare_assign, .literal = ":=" },
+        .{ .type = TokenType.int, .literal = "5" },
+        .{ .type = TokenType.semi_colon, .literal = ";" },
+        .{ .type = TokenType.mutable, .literal = "mut" },
+        .{ .type = TokenType.ident, .literal = "ten" },
+        .{ .type = TokenType.declaration, .literal = ":" },
+        .{ .type = TokenType.ident, .literal = "usize" },
+        .{ .type = TokenType.assign, .literal = "=" },
+        .{ .type = TokenType.int, .literal = "10" },
+        .{ .type = TokenType.semi_colon, .literal = ";" },
+        .{ .type = TokenType.ident, .literal = "add_stuff" },
+        .{ .type = TokenType.declare_assign, .literal = ":=" },
+        .{ .type = TokenType.l_paren, .literal = "(" },
+        .{ .type = TokenType.ident, .literal = "x" },
+        .{ .type = TokenType.declaration, .literal = ":" },
+        .{ .type = TokenType.ident, .literal = "usize" },
+        .{ .type = TokenType.comma, .literal = "," },
+        .{ .type = TokenType.ident, .literal = "y" },
+        .{ .type = TokenType.declaration, .literal = ":" },
+        .{ .type = TokenType.ident, .literal = "usize" },
+        .{ .type = TokenType.r_paren, .literal = ")" },
+        .{ .type = TokenType.fn_return, .literal = "=>" },
+        .{ .type = TokenType.l_brace, .literal = "{" },
+        .{ .type = TokenType.block_return, .literal = "return" },
+        .{ .type = TokenType.ident, .literal = "x" },
+        .{ .type = TokenType.plus, .literal = "+" },
+        .{ .type = TokenType.ident, .literal = "y" },
+        .{ .type = TokenType.semi_colon, .literal = ";" },
+        .{ .type = TokenType.r_brace, .literal = "}" },
+        .{ .type = TokenType.semi_colon, .literal = ";" },
+        .{ .type = TokenType.ident, .literal = "result" },
+        .{ .type = TokenType.declare_assign, .literal = ":=" },
+        .{ .type = TokenType.ident, .literal = "add_stuff" },
+        .{ .type = TokenType.l_paren, .literal = "(" },
+        .{ .type = TokenType.ident, .literal = "five" },
+        .{ .type = TokenType.comma, .literal = "," },
+        .{ .type = TokenType.ident, .literal = "ten" },
+        .{ .type = TokenType.r_paren, .literal = ")" },
+        .{ .type = TokenType.semi_colon, .literal = ";" },
+        .{ .type = TokenType.bang, .literal = "!" },
+        .{ .type = TokenType.minus, .literal = "-" },
+        .{ .type = TokenType.slash, .literal = "/" },
+        .{ .type = TokenType.asterisk, .literal = "*" },
+        .{ .type = TokenType.int, .literal = "5" },
+        .{ .type = TokenType.semi_colon, .literal = ";" },
+        .{ .type = TokenType.if_, .literal = "if" },
+        .{ .type = TokenType.ident, .literal = "ten" },
+        .{ .type = TokenType.lt, .literal = "<" },
+        .{ .type = TokenType.int, .literal = "11" },
+        .{ .type = TokenType.and_, .literal = "and" },
+        .{ .type = TokenType.ident, .literal = "ten" },
+        .{ .type = TokenType.gt, .literal = ">" },
+        .{ .type = TokenType.int, .literal = "9" },
+        .{ .type = TokenType.or_, .literal = "or" },
+        .{ .type = TokenType.false, .literal = "false" },
+        .{ .type = TokenType.l_brace, .literal = "{" },
+        .{ .type = TokenType.block_return, .literal = "return" },
+        .{ .type = TokenType.true, .literal = "true" },
+        .{ .type = TokenType.semi_colon, .literal = ";" },
+        .{ .type = TokenType.r_brace, .literal = "}" },
+        .{ .type = TokenType.int, .literal = "10" },
+        .{ .type = TokenType.equal, .literal = "==" },
+        .{ .type = TokenType.int, .literal = "10" },
+        .{ .type = TokenType.semi_colon, .literal = ";" },
+        .{ .type = TokenType.int, .literal = "10" },
+        .{ .type = TokenType.not_equal, .literal = "!=" },
+        .{ .type = TokenType.int, .literal = "901" },
+        .{ .type = TokenType.semi_colon, .literal = ";" },
     };
 
     var lexer = Lexer.init(input);
