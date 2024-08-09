@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
+const TokenLiteral = @import("token.zig").TokenLiteral;
 
 pub const Lexer = struct {
     input: []const u8,
@@ -24,30 +25,30 @@ pub const Lexer = struct {
     }
 
     pub fn nextToken(self: *Lexer) Token {
-        var tok = Token{ .type = TokenType.illegal, .literal = &[_]u8{self.char} };
+        var tok = Token{ .type = TokenType.Unknown, .literal = &[_]u8{self.char} };
 
         self.skipWhiteSpace();
 
         switch (self.char) {
             0 => {
-                tok.type = TokenType.eof;
+                tok.type = TokenType.Eof;
                 tok.literal = "";
             },
             '=' => {
                 const peeked = self.peek(0);
                 switch (peeked) {
-                    '>' => {
-                        tok.type = TokenType.fn_return;
-                        tok.literal = "=>";
-                        self.eatChar();
-                    },
                     '=' => {
-                        tok.type = TokenType.equal;
+                        tok.type = TokenType.EqEq;
                         tok.literal = "==";
                         self.eatChar();
                     },
+                    '>' => {
+                        tok.type = TokenType.Arrow;
+                        tok.literal = "=>";
+                        self.eatChar();
+                    },
                     else => {
-                        tok.type = TokenType.assign;
+                        tok.type = TokenType.Eq;
                         tok.literal = "=";
                     },
                 }
@@ -55,76 +56,297 @@ pub const Lexer = struct {
             ':' => {
                 const peeked = self.peek(0);
                 if (peeked == '=') {
-                    tok.type = TokenType.declare_assign;
+                    tok.type = TokenType.DeclareAssign;
                     tok.literal = ":=";
                     self.eatChar();
                 } else {
-                    tok.type = TokenType.declaration;
+                    tok.type = TokenType.Colon;
                     tok.literal = ":";
                 }
             },
             '+' => {
-                tok.type = TokenType.plus;
-                tok.literal = "+";
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '=' => {
+                        tok.type = TokenType.AddAssign;
+                        tok.literal = "+=";
+                        self.eatChar();
+                    },
+                    else => {
+                        tok.type = TokenType.Plus;
+                        tok.literal = "+";
+                    },
+                }
             },
             '-' => {
-                tok.type = TokenType.minus;
-                tok.literal = "-";
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '=' => {
+                        tok.type = TokenType.SubAssign;
+                        tok.literal = "-=";
+                        self.eatChar();
+                    },
+                    else => {
+                        tok.type = TokenType.Minus;
+                        tok.literal = "-";
+                    },
+                }
             },
             '!' => {
                 const peeked = self.peek(0);
 
                 switch (peeked) {
                     '=' => {
-                        tok.type = TokenType.not_equal;
+                        tok.type = TokenType.NotEq;
                         tok.literal = "!=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.bang;
+                        tok.type = TokenType.Bang;
                         tok.literal = "!";
                     },
                 }
             },
             '*' => {
-                tok.type = TokenType.asterisk;
-                tok.literal = "*";
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '=' => {
+                        tok.type = TokenType.MulAssign;
+                        tok.literal = "*=";
+                        self.eatChar();
+                    },
+                    else => {
+                        tok.type = TokenType.Star;
+                        tok.literal = "*";
+                    },
+                }
             },
             '/' => {
-                tok.type = TokenType.slash;
-                tok.literal = "/";
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '/' => {
+                        tok.type = TokenType.LineComment;
+                        tok.literal = "//";
+                        self.eatChar();
+                    },
+                    '*' => {
+                        // TODO: compiler error if end of comment not found!
+                        const start_pos = self.position;
+                        var end_pos = self.position;
+                        self.eatChar(); // Eat the '*'
+                        while (true) {
+                            if (self.char == '*' and self.peek(0) == '/') {
+                                self.eatChar(); // Eat the '*'
+                                self.eatChar(); // Eat the '/'
+                                end_pos = self.position;
+                                break;
+                            } else if (self.char == '0') {
+                                // TODO: throw real error here!
+                                std.debug.print("Error: Unterminated block comment starting at position {d}\n", .{start_pos});
+                                break;
+                            } else {
+                                self.eatChar();
+                            }
+                        }
+
+                        tok.type = TokenType.BlockComment;
+                        tok.literal = self.input[start_pos..end_pos];
+                    },
+                    '=' => {
+                        tok.type = TokenType.DivAssign;
+                        tok.literal = "/=";
+                        self.eatChar();
+                    },
+                    else => {
+                        tok.type = TokenType.Slash;
+                        tok.literal = "/";
+                    },
+                }
             },
             '<' => {
-                tok.type = TokenType.lt;
-                tok.literal = "<";
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '<' => {
+                        tok.type = TokenType.LtLt;
+                        tok.literal = "<<";
+                        self.eatChar();
+
+                        const peeked_2 = self.peek(0);
+                        if (peeked_2 == '=') {
+                            tok.type = TokenType.LtLtAssign;
+                            tok.literal = "<<=";
+                            self.eatChar();
+                        }
+                    },
+                    else => {
+                        tok.type = TokenType.Lt;
+                        tok.literal = "<";
+                    },
+                }
             },
             '>' => {
-                tok.type = TokenType.gt;
-                tok.literal = ">";
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '>' => {
+                        tok.type = TokenType.GtGt;
+                        tok.literal = ">>";
+                        self.eatChar();
+
+                        const peeked_2 = self.peek(0);
+                        if (peeked_2 == '=') {
+                            tok.type = TokenType.GtGtAssign;
+                            tok.literal = ">>=";
+                            self.eatChar();
+                        }
+                    },
+                    else => {
+                        tok.type = TokenType.Gt;
+                        tok.literal = ">";
+                    },
+                }
             },
             ',' => {
-                tok.type = TokenType.comma;
+                tok.type = TokenType.Comma;
                 tok.literal = ",";
             },
             ';' => {
-                tok.type = TokenType.semi_colon;
+                tok.type = TokenType.Semi;
                 tok.literal = ";";
             },
             '(' => {
-                tok.type = TokenType.l_paren;
+                tok.type = TokenType.OpenParen;
                 tok.literal = "(";
             },
             ')' => {
-                tok.type = TokenType.r_paren;
+                tok.type = TokenType.CloseParen;
                 tok.literal = ")";
             },
             '{' => {
-                tok.type = TokenType.l_brace;
+                tok.type = TokenType.OpenBrace;
                 tok.literal = "{";
             },
             '}' => {
-                tok.type = TokenType.r_brace;
+                tok.type = TokenType.CloseBrace;
                 tok.literal = "}";
+            },
+            '[' => {
+                tok.type = TokenType.OpenBracket;
+                tok.literal = "[";
+            },
+            ']' => {
+                tok.type = TokenType.CloseBracket;
+                tok.literal = "]";
+            },
+            '&' => {
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '&' => {
+                        tok.type = TokenType.AndAnd;
+                        tok.literal = "&&";
+                        self.eatChar();
+                    },
+                    '=' => {
+                        tok.type = TokenType.BitwiseAssign;
+                        tok.literal = "&=";
+                        self.eatChar();
+                    },
+                    else => {
+                        tok.type = TokenType.And;
+                        tok.literal = "&";
+                    },
+                }
+            },
+            '.' => {
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '.' => {
+                        tok.type = TokenType.DotDot;
+                        tok.literal = "..";
+                        self.eatChar();
+
+                        const peeked_2 = self.peek(0);
+                        if (peeked_2 == '=') {
+                            tok.type = TokenType.DotDotEq;
+                            tok.literal = "..=";
+                            self.eatChar();
+                        }
+                    },
+                    else => {
+                        tok.type = TokenType.Dot;
+                        tok.literal = ".";
+                    },
+                }
+            },
+            '@' => {
+                tok.type = TokenType.At;
+                tok.literal = "@";
+            },
+            '#' => {
+                tok.type = TokenType.Pound;
+                tok.literal = "#";
+            },
+            '~' => {
+                tok.type = TokenType.Tilde;
+                tok.literal = "~";
+            },
+            '?' => {
+                tok.type = TokenType.Question;
+                tok.literal = "?";
+            },
+            '$' => {
+                tok.type = TokenType.Dollar;
+                tok.literal = "$";
+            },
+            '|' => {
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '|' => {
+                        tok.type = TokenType.OrOr;
+                        tok.literal = "||";
+                        self.eatChar();
+                    },
+                    '=' => {
+                        tok.type = TokenType.OrAssign;
+                        tok.literal = "|=";
+                        self.eatChar();
+                    },
+                    else => {
+                        tok.type = TokenType.Or;
+                        tok.literal = "|";
+                    },
+                }
+            },
+            '\\' => {
+                tok.type = TokenType.BackSlash;
+                tok.literal = "\\";
+            },
+            '^' => {
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '=' => {
+                        tok.type = TokenType.CaretAssign;
+                        tok.literal = "^=";
+                        self.eatChar();
+                    },
+                    else => {
+                        tok.type = TokenType.Caret;
+                        tok.literal = "^";
+                    },
+                }
+            },
+            '%' => {
+                const peeked = self.peek(0);
+                switch (peeked) {
+                    '=' => {
+                        tok.type = TokenType.ArithmeticAssign;
+                        tok.literal = "%=";
+                        self.eatChar();
+                    },
+                    else => {
+                        tok.type = TokenType.Percent;
+                        tok.literal = "%";
+                    },
+                }
             },
             else => {
                 if (Lexer.isLetter(self.char)) {
@@ -133,7 +355,7 @@ pub const Lexer = struct {
                     tok.type = Token.lookupIdent(ident);
                     return tok; // INFO: readIdentifier advances the next char, so we have to return here!
                 } else if (Lexer.isDigit(self.char)) {
-                    tok.type = TokenType.int;
+                    tok.type = TokenType{ .Literal = TokenLiteral.Int }; // TODO: implement other token literal types!
                     tok.literal = self.eatNumber();
                     return tok; // INFO: readNumber advances the next char, so we have to return here!
                 }
@@ -181,7 +403,7 @@ pub const Lexer = struct {
     fn peek(self: Lexer, look_ahead: usize) u8 {
         const index = self.read_position + look_ahead;
 
-        if (index < self.input.len - 1 and index > 0) {
+        if (index < self.input.len and index > 0) {
             return self.input[index];
         }
 
@@ -205,90 +427,130 @@ pub const Lexer = struct {
 
 test "Next Token" {
     const input =
-        \\five := 5;
-        \\mut ten: usize = 10;
-        \\add_stuff := (x: usize, y: usize) => {
-        \\  return x + y;
-        \\};
-        \\result := add_stuff(five, ten);
-        \\!-/*5;
-        \\if ten < 11 and ten > 9 or false {
-        \\return true;
+        // ------- Special -------
+        \\xyz
+        // ------- Literals -------
+        \\10
+        // ------- Keywords -------
+        \\mut
+        \\return
+        \\if
+        \\else
+        \\false
+        \\true
+        // ------- One Char Tokens -------
+        \\;
+        \\,
+        \\.
+        \\(
+        \\)
+        \\{
         \\}
-        \\10 == 10;
-        \\10 != 901;
+        \\[
+        \\]
+        \\@
+        \\#
+        \\~
+        \\?
+        \\:
+        \\$
+        \\=
+        \\!
+        \\<
+        \\>
+        \\-
+        \\&
+        \\|
+        \\+
+        \\*
+        \\/
+        \\\
+        \\^
+        \\%
+        // ------- Two-char tokens: --------
+        \\//
+        \\/* block comment */
+        \\:=
+        \\=>
+        \\&&
+        \\||
+        \\==
+        \\!=
+        \\%=
+        \\&=
+        \\*=
+        \\+=
+        \\-=
+        \\..
+        \\..=
+        \\/=
+        \\<<
+        \\<<=
+        \\>>
+        \\>>=
+        \\^=
+        \\|=
     ;
 
     const tests = .{
-        .{ .type = TokenType.ident, .literal = "five" },
-        .{ .type = TokenType.declare_assign, .literal = ":=" },
-        .{ .type = TokenType.int, .literal = "5" },
-        .{ .type = TokenType.semi_colon, .literal = ";" },
-        .{ .type = TokenType.mutable, .literal = "mut" },
-        .{ .type = TokenType.ident, .literal = "ten" },
-        .{ .type = TokenType.declaration, .literal = ":" },
-        .{ .type = TokenType.ident, .literal = "usize" },
-        .{ .type = TokenType.assign, .literal = "=" },
-        .{ .type = TokenType.int, .literal = "10" },
-        .{ .type = TokenType.semi_colon, .literal = ";" },
-        .{ .type = TokenType.ident, .literal = "add_stuff" },
-        .{ .type = TokenType.declare_assign, .literal = ":=" },
-        .{ .type = TokenType.l_paren, .literal = "(" },
-        .{ .type = TokenType.ident, .literal = "x" },
-        .{ .type = TokenType.declaration, .literal = ":" },
-        .{ .type = TokenType.ident, .literal = "usize" },
-        .{ .type = TokenType.comma, .literal = "," },
-        .{ .type = TokenType.ident, .literal = "y" },
-        .{ .type = TokenType.declaration, .literal = ":" },
-        .{ .type = TokenType.ident, .literal = "usize" },
-        .{ .type = TokenType.r_paren, .literal = ")" },
-        .{ .type = TokenType.fn_return, .literal = "=>" },
-        .{ .type = TokenType.l_brace, .literal = "{" },
-        .{ .type = TokenType.block_return, .literal = "return" },
-        .{ .type = TokenType.ident, .literal = "x" },
-        .{ .type = TokenType.plus, .literal = "+" },
-        .{ .type = TokenType.ident, .literal = "y" },
-        .{ .type = TokenType.semi_colon, .literal = ";" },
-        .{ .type = TokenType.r_brace, .literal = "}" },
-        .{ .type = TokenType.semi_colon, .literal = ";" },
-        .{ .type = TokenType.ident, .literal = "result" },
-        .{ .type = TokenType.declare_assign, .literal = ":=" },
-        .{ .type = TokenType.ident, .literal = "add_stuff" },
-        .{ .type = TokenType.l_paren, .literal = "(" },
-        .{ .type = TokenType.ident, .literal = "five" },
-        .{ .type = TokenType.comma, .literal = "," },
-        .{ .type = TokenType.ident, .literal = "ten" },
-        .{ .type = TokenType.r_paren, .literal = ")" },
-        .{ .type = TokenType.semi_colon, .literal = ";" },
-        .{ .type = TokenType.bang, .literal = "!" },
-        .{ .type = TokenType.minus, .literal = "-" },
-        .{ .type = TokenType.slash, .literal = "/" },
-        .{ .type = TokenType.asterisk, .literal = "*" },
-        .{ .type = TokenType.int, .literal = "5" },
-        .{ .type = TokenType.semi_colon, .literal = ";" },
-        .{ .type = TokenType.if_, .literal = "if" },
-        .{ .type = TokenType.ident, .literal = "ten" },
-        .{ .type = TokenType.lt, .literal = "<" },
-        .{ .type = TokenType.int, .literal = "11" },
-        .{ .type = TokenType.and_, .literal = "and" },
-        .{ .type = TokenType.ident, .literal = "ten" },
-        .{ .type = TokenType.gt, .literal = ">" },
-        .{ .type = TokenType.int, .literal = "9" },
-        .{ .type = TokenType.or_, .literal = "or" },
-        .{ .type = TokenType.false, .literal = "false" },
-        .{ .type = TokenType.l_brace, .literal = "{" },
-        .{ .type = TokenType.block_return, .literal = "return" },
-        .{ .type = TokenType.true, .literal = "true" },
-        .{ .type = TokenType.semi_colon, .literal = ";" },
-        .{ .type = TokenType.r_brace, .literal = "}" },
-        .{ .type = TokenType.int, .literal = "10" },
-        .{ .type = TokenType.equal, .literal = "==" },
-        .{ .type = TokenType.int, .literal = "10" },
-        .{ .type = TokenType.semi_colon, .literal = ";" },
-        .{ .type = TokenType.int, .literal = "10" },
-        .{ .type = TokenType.not_equal, .literal = "!=" },
-        .{ .type = TokenType.int, .literal = "901" },
-        .{ .type = TokenType.semi_colon, .literal = ";" },
+        .{ TokenType.Ident, "xyz" },
+        .{ TokenType{ .Literal = TokenLiteral.Int }, "10" },
+        .{ TokenType.Mut, "mut" },
+        .{ TokenType.Return, "return" },
+        .{ TokenType.If, "if" },
+        .{ TokenType.Else, "else" },
+        .{ TokenType.False, "false" },
+        .{ TokenType.True, "true" },
+        .{ TokenType.Semi, ";" },
+        .{ TokenType.Comma, "," },
+        .{ TokenType.Dot, "." },
+        .{ TokenType.OpenParen, "(" },
+        .{ TokenType.CloseParen, ")" },
+        .{ TokenType.OpenBrace, "{" },
+        .{ TokenType.CloseBrace, "}" },
+        .{ TokenType.OpenBracket, "[" },
+        .{ TokenType.CloseBracket, "]" },
+        .{ TokenType.At, "@" },
+        .{ TokenType.Pound, "#" },
+        .{ TokenType.Tilde, "~" },
+        .{ TokenType.Question, "?" },
+        .{ TokenType.Colon, ":" },
+        .{ TokenType.Dollar, "$" },
+        .{ TokenType.Eq, "=" },
+        .{ TokenType.Bang, "!" },
+        .{ TokenType.Lt, "<" },
+        .{ TokenType.Gt, ">" },
+        .{ TokenType.Minus, "-" },
+        .{ TokenType.And, "&" },
+        .{ TokenType.Or, "|" },
+        .{ TokenType.Plus, "+" },
+        .{ TokenType.Star, "*" },
+        .{ TokenType.Slash, "/" },
+        .{ TokenType.BackSlash, "\\" },
+        .{ TokenType.Caret, "^" },
+        .{ TokenType.Percent, "%" },
+        .{ TokenType.LineComment, "//" },
+        .{ TokenType.BlockComment, "/* block comment */" },
+        .{ TokenType.DeclareAssign, ":=" },
+        .{ TokenType.Arrow, "=>" },
+        .{ TokenType.AndAnd, "&&" },
+        .{ TokenType.OrOr, "||" },
+        .{ TokenType.EqEq, "==" },
+        .{ TokenType.NotEq, "!=" },
+        .{ TokenType.ArithmeticAssign, "%=" },
+        .{ TokenType.BitwiseAssign, "&=" },
+        .{ TokenType.MulAssign, "*=" },
+        .{ TokenType.AddAssign, "+=" },
+        .{ TokenType.SubAssign, "-=" },
+        .{ TokenType.DotDot, ".." },
+        .{ TokenType.DotDotEq, "..=" },
+        .{ TokenType.DivAssign, "/=" },
+        .{ TokenType.LtLt, "<<" },
+        .{ TokenType.LtLtAssign, "<<=" },
+        .{ TokenType.GtGt, ">>" },
+        .{ TokenType.GtGtAssign, ">>=" },
+        .{ TokenType.CaretAssign, "^=" },
+        .{ TokenType.OrAssign, "|=" },
     };
 
     var lexer = Lexer.init(input);
@@ -298,7 +560,7 @@ test "Next Token" {
         const tok = lexer.nextToken();
         std.debug.print("{}.token: Type: {}, Literal: {s}\n", .{ i, tok.type, tok.literal });
 
-        try testing.expectEqual(test_item.type, tok.type);
-        try testing.expectEqualStrings(test_item.literal, tok.literal);
+        try testing.expectEqual(test_item[0], tok.type);
+        try testing.expectEqualStrings(test_item[1], tok.literal);
     }
 }

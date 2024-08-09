@@ -17,9 +17,9 @@ const test_allocator = std.testing.allocator;
 pub const Parser = struct {
     allocator: std.mem.Allocator,
     lexer: Lexer,
-    prev_token: Token = Token{ .type = .illegal, .literal = "" },
-    cur_token: Token = Token{ .type = .illegal, .literal = "" },
-    peek_token: Token = Token{ .type = .illegal, .literal = "" },
+    prev_token: Token = Token{ .type = .Unknown, .literal = "" },
+    cur_token: Token = Token{ .type = .Unknown, .literal = "" },
+    peek_token: Token = Token{ .type = .Unknown, .literal = "" },
     errors: ArrayList([]const u8),
 
     fn init(allocator: std.mem.Allocator, lex: Lexer) Parser {
@@ -41,7 +41,7 @@ pub const Parser = struct {
     pub fn parseProgram(self: *Parser) !Program {
         var program = Program.init(self.allocator);
 
-        while (self.cur_token.type != .eof) {
+        while (self.cur_token.type != .Eof) {
             const statement = try self.parseStatement();
             if (statement) |stmt| {
                 try program.statements.append(stmt);
@@ -54,9 +54,9 @@ pub const Parser = struct {
 
     fn parseStatement(self: *Parser) !?Statement {
         switch (self.cur_token.type) {
-            .declare_assign => return try self.parseDeclareAssignStatement(),
+            .DeclareAssign => return try self.parseDeclareAssignStatement(),
             else => {
-                if (self.peek_token.type != .illegal or self.peek_token.type != .eof) {
+                if (self.peek_token.type != .Unknown or self.peek_token.type != .Eof) {
                     self.nextToken();
                     return try self.parseStatement();
                 }
@@ -67,14 +67,14 @@ pub const Parser = struct {
 
     fn parseDeclareAssignStatement(self: *Parser) !?Statement {
         const ident_expr = IdentifierExpression{ .token = self.prev_token, .value = self.prev_token.literal };
-        if (!self.expectPrevAndEat(.ident)) {
+        if (!self.expectPrevAndEat(.Ident)) {
             const err = try fmt.allocPrint(self.allocator, "Error parsing ':=' declare_assign. Expected identifier before declare_assign, but got: {s}\n", .{self.prev_token.literal});
             try self.errors.append(err);
             return null;
         }
         const statement = DeclareAssignStatement{ .token = self.prev_token, .name = ident_expr, .value = null };
 
-        while (!self.curTokenIs(TokenType.semi_colon)) {
+        while (!self.curTokenIs(TokenType.Semi)) {
             self.nextToken();
         }
 
@@ -82,15 +82,15 @@ pub const Parser = struct {
     }
 
     fn curTokenIs(self: Parser, token_type: TokenType) bool {
-        return self.cur_token.type == token_type;
+        return self.cur_token.type.compareEq(token_type);
     }
 
     fn peekTokenIs(self: Parser, token_type: TokenType) bool {
-        return self.peek_token.type == token_type;
+        return self.peek_token.type.compareEq(token_type);
     }
 
     fn prevTokenIs(self: Parser, token_type: TokenType) bool {
-        return self.prev_token.type == token_type;
+        return self.prev_token.type.compareEq(token_type);
     }
 
     fn expectPeekAndEat(self: *Parser, token_type: TokenType) bool {

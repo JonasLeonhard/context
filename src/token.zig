@@ -1,63 +1,184 @@
 const std = @import("std");
 
-pub const TokenType = enum {
-    illegal,
-    eof,
+pub const TokenType = union(enum) {
+    // -------- Special --------
+    /// Token not known to the compiler
+    Unknown,
 
-    // Indentifiers + literals
-    ident,
+    /// End of file
+    Eof,
 
-    int, // digits -> they will later
-    string, // datastructure for []u8 utf-8 strings, basicly []u8 but with extra methods
-    char, // 'a' single bit representation of a string as u8
+    /// "ident" or "continue"
+    /// At this step, keywords are also considered identifiers.
+    Ident,
 
-    // Operators
-    assign, // =
-    declaration, // :
-    declare_assign, // :=
-    plus,
-    minus,
-    bang,
-    asterisk,
-    slash,
+    /// Strings, floats ... example: `12u8`, `1.0e-40`, `b"123"`
+    Literal: TokenLiteral,
 
-    lt, // <
-    gt, // >
-    equal, // ==
-    not_equal, // !=
+    // -------- Keywords --------
+    /// mut
+    Mut,
+    /// return
+    Return,
+    /// if
+    If,
+    /// else
+    Else,
+    /// false
+    False,
+    /// true
+    True,
 
-    // Delimiters
-    comma,
-    semi_colon,
+    //  -------- One-char tokens:  --------
+    /// ";"
+    Semi,
+    /// ","
+    Comma,
+    /// "."
+    Dot,
+    /// "("
+    OpenParen,
+    /// ")"
+    CloseParen,
+    /// "{"
+    OpenBrace,
+    /// "}"
+    CloseBrace,
+    /// "["
+    OpenBracket,
+    /// "]"
+    CloseBracket,
+    /// "@"
+    At,
+    /// "#"
+    Pound,
+    /// "~"
+    Tilde,
+    /// "?"
+    Question,
+    /// ":"
+    Colon,
+    /// "$"
+    Dollar,
+    /// "="
+    Eq,
+    /// "!"
+    Bang,
+    /// "<"
+    Lt,
+    /// ">"
+    Gt,
+    /// "-"
+    Minus,
+    /// "&"
+    And,
+    /// "|"
+    Or,
+    /// "+"
+    Plus,
+    /// "*"
+    Star,
+    /// "/"
+    Slash,
+    /// "\"
+    BackSlash,
+    /// "^"
+    Caret,
+    /// "%"
+    Percent,
 
-    l_paren,
-    r_paren,
-    l_brace,
-    r_brace,
+    // ------- Two-char tokens: --------
+    /// "// comment"
+    LineComment,
+    /// `/* block comment */`
+    ///
+    /// Block comments can be recursive, so a sequence like `/* /* */`
+    /// will not be considered terminated and will result in a parsing error.
+    BlockComment,
+    /// Declare assign ':='
+    DeclareAssign,
+    /// "=>"
+    Arrow,
+    /// &&
+    AndAnd,
+    /// ||
+    OrOr,
+    /// ==
+    EqEq,
+    /// !=
+    NotEq,
+    /// %=
+    ArithmeticAssign,
+    /// &=
+    BitwiseAssign,
+    /// *=
+    MulAssign,
+    /// +=
+    AddAssign,
+    /// -=
+    SubAssign,
+    /// ..
+    DotDot,
+    /// ..=
+    DotDotEq,
+    /// /=
+    DivAssign,
+    /// <<
+    LtLt,
+    /// <<=
+    LtLtAssign,
+    // >>
+    GtGt,
+    // >>=
+    GtGtAssign,
+    // ^=
+    CaretAssign,
+    // |=
+    OrAssign,
 
-    function, // () => {} TODO: use
-    fn_return, // TODO: rename? | =>
+    pub fn compareEq(self: TokenType, other: TokenType) bool {
+        return switch (self) {
+            TokenType.Literal => |a_literal| switch (other) {
+                TokenType.Literal => |b_literal| a_literal == b_literal,
+                else => false,
+            },
+            else => @intFromEnum(self) == @intFromEnum(other),
+        };
+    }
+};
 
-    // Keywords
-    mutable, // mut
-    block_return, // return
-    true,
-    false,
-    if_,
-    else_,
-    and_,
-    or_,
+pub const TokenLiteral = enum {
+    /// "12_u8", "0o100", "0b120i99", "1f32".
+    Int,
+    /// "12.34f32", "1e3", but not "1f32".
+    Float,
+    /// "'a'", "'\\'", "'''", "';"
+    Char,
+    /// "b'a'", "b'\\'", "b'''", "b';"
+    Byte,
+    /// ""abc"", ""abc"
+    Str,
+    /// "b"abc"", "b"abc"
+    ByteStr,
+    /// `c"abc"`, `c"abc`
+    CStr,
+    /// "r"abc"", "r#"abc"#", "r####"ab"###"c"####", "r#"a". `None` indicates
+    /// an invalid literal.
+    RawStr,
+    /// "br"abc"", "br#"abc"#", "br####"ab"###"c"####", "br#"a". `None`
+    /// indicates an invalid literal.
+    RawByteStr,
+    /// `cr"abc"`, "cr#"abc"#", `cr#"a`. `None` indicates an invalid literal.
+    RawCStr,
 };
 
 const ident_map = std.StaticStringMap(TokenType).initComptime(.{
-    .{ "mut", TokenType.mutable },
-    .{ "return", TokenType.block_return },
-    .{ "true", TokenType.true },
-    .{ "false", TokenType.false },
-    .{ "if", TokenType.if_ },
-    .{ "else", TokenType.else_ },
-    .{ "and", TokenType.and_ },
-    .{ "or", TokenType.or_ },
+    .{ "mut", TokenType.Mut },
+    .{ "return", TokenType.Return },
+    .{ "true", TokenType.True },
+    .{ "false", TokenType.False },
+    .{ "if", TokenType.If },
+    .{ "else", TokenType.Else },
 });
 
 pub const Token = struct {
@@ -68,6 +189,6 @@ pub const Token = struct {
         if (possible_type) |actual_type| {
             return actual_type;
         }
-        return TokenType.ident;
+        return TokenType.Ident;
     }
 };
