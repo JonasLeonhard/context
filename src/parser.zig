@@ -4,7 +4,6 @@ const testing = std.testing;
 
 const ast = @import("ast.zig");
 const Program = ast.Program;
-const Node = ast.Node;
 const Statement = ast.Statement;
 const DeclareAssignStatement = ast.DeclareAssignStatement;
 const IdentifierExpression = ast.IdentifierExpression;

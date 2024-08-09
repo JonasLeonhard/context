@@ -2,16 +2,6 @@ const Token = @import("token.zig").Token;
 const std = @import("std");
 const ArrayList = std.ArrayList;
 
-pub const Node = union(enum) {
-    statement: Statement,
-    expression: Expression,
-    pub fn tokenLiteral(self: Node) []u8 {
-        switch (self) {
-            inline else => |case| return case.tokenLiteral(),
-        }
-    }
-};
-
 pub const Statement = union(enum) {
     declare_assign: DeclareAssignStatement,
     todo: DeclareAssignStatement, // TODO added because of match with single arm
