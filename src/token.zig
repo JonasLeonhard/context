@@ -28,6 +28,8 @@ pub const TokenType = union(enum) {
     False,
     /// true
     True,
+    // fn
+    Fn,
 
     //  -------- One-char tokens:  --------
     /// ";"
@@ -179,6 +181,7 @@ const ident_map = std.StaticStringMap(TokenType).initComptime(.{
     .{ "false", TokenType.False },
     .{ "if", TokenType.If },
     .{ "else", TokenType.Else },
+    .{ "fn", TokenType.Fn }
 });
 
 pub const Token = struct {

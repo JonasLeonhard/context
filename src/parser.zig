@@ -31,6 +31,10 @@ pub const Parser = struct {
         return parser;
     }
 
+    fn deinit(self: *Parser) void {
+        self.errors.deinit();
+    }
+
     fn nextToken(self: *Parser) void {
         self.prev_token = self.cur_token;
         self.cur_token = self.peek_token;
@@ -120,10 +124,6 @@ pub const Parser = struct {
         }
 
         return error.ParserError;
-    }
-
-    fn deinit(self: *Parser) void {
-        self.errors.deinit();
     }
 };
 

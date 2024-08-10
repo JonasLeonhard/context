@@ -438,6 +438,7 @@ test "Next Token" {
         \\else
         \\false
         \\true
+        \\fn
         // ------- One Char Tokens -------
         \\;
         \\,
@@ -501,6 +502,7 @@ test "Next Token" {
         .{ TokenType.Else, "else" },
         .{ TokenType.False, "false" },
         .{ TokenType.True, "true" },
+        .{ TokenType.Fn, "fn" },
         .{ TokenType.Semi, ";" },
         .{ TokenType.Comma, "," },
         .{ TokenType.Dot, "." },
