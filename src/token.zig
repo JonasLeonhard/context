@@ -48,6 +48,8 @@ pub const TokenType = union(enum) {
     While,
     /// Break
     Break,
+    /// defer
+    Defer,
 
 
     //  -------- One-char tokens:  --------
@@ -210,6 +212,7 @@ const ident_map = std.StaticStringMap(TokenType).initComptime(.{
     .{ "for", TokenType.For },
     .{ "while", TokenType.While },
     .{ "break", TokenType.Break },
+    .{ "defer", TokenType.Defer },
 });
 
 pub const Token = struct {

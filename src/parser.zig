@@ -139,7 +139,7 @@ fn validDeclareAssignStatement(statement: Statement, name: []const u8) !bool {
     }
 }
 
-test "declare_assign_statements" {
+test "DeclareAssign statements" {
     const input =
         \\x := 5;
         \\y := 10;
@@ -154,7 +154,7 @@ test "declare_assign_statements" {
     defer program.deinit();
     try parser.checkParserErrors();
 
-    std.debug.print("program statements: {}\n", .{program.statements});
+    std.debug.print("\nDeclareAssignStatements: {}\n\n", .{program.statements});
 
     try testing.expectEqual(program.statements.items.len, 3);
 

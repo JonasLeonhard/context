@@ -448,6 +448,7 @@ test "Next Token" {
         \\for
         \\while
         \\break
+        \\defer
         // ------- One Char Tokens -------
         \\;
         \\,
@@ -521,6 +522,7 @@ test "Next Token" {
         .{ TokenType.For, "for" },
         .{ TokenType.While, "while" },
         .{ TokenType.Break, "break" },
+        .{ TokenType.Defer, "defer" },
         .{ TokenType.Semi, ";" },
         .{ TokenType.Comma, "," },
         .{ TokenType.Dot, "." },
@@ -575,10 +577,8 @@ test "Next Token" {
 
     var lexer = Lexer.init(input);
 
-    std.debug.print("\n-\n", .{}); // TODO: this adds a new line for testing output. How to do this better?, TODO: add this print without the test failing
-    inline for (0.., tests) |i, test_item| {
+    inline for (tests) |test_item| {
         const tok = lexer.nextToken();
-        std.debug.print("{}.token: Type: {}, Literal: {s}\n", .{ i, tok.type, tok.literal });
 
         try testing.expectEqual(test_item[0], tok.type);
         try testing.expectEqualStrings(test_item[1], tok.literal);
