@@ -28,8 +28,27 @@ pub const TokenType = union(enum) {
     False,
     /// true
     True,
-    // fn
+    /// fn
     Fn,
+    /// where
+    Where,
+    /// pub
+    Pub,
+    /// enum
+    Enum,
+    /// Struct
+    Struct,
+    /// impl
+    Impl,
+    /// switch
+    Switch,
+    /// for
+    For,
+    /// While
+    While,
+    /// Break
+    Break,
+
 
     //  -------- One-char tokens:  --------
     /// ";"
@@ -181,7 +200,16 @@ const ident_map = std.StaticStringMap(TokenType).initComptime(.{
     .{ "false", TokenType.False },
     .{ "if", TokenType.If },
     .{ "else", TokenType.Else },
-    .{ "fn", TokenType.Fn }
+    .{ "fn", TokenType.Fn },
+    .{ "where", TokenType.Where },
+    .{ "pub", TokenType.Pub },
+    .{ "enum", TokenType.Enum },
+    .{ "struct", TokenType.Struct },
+    .{ "impl", TokenType.Impl },
+    .{ "switch", TokenType.Switch },
+    .{ "for", TokenType.For },
+    .{ "while", TokenType.While },
+    .{ "break", TokenType.Break },
 });
 
 pub const Token = struct {

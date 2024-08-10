@@ -439,6 +439,15 @@ test "Next Token" {
         \\false
         \\true
         \\fn
+        \\where
+        \\pub
+        \\enum
+        \\struct
+        \\impl
+        \\switch
+        \\for
+        \\while
+        \\break
         // ------- One Char Tokens -------
         \\;
         \\,
@@ -503,6 +512,15 @@ test "Next Token" {
         .{ TokenType.False, "false" },
         .{ TokenType.True, "true" },
         .{ TokenType.Fn, "fn" },
+        .{ TokenType.Where, "where" },
+        .{ TokenType.Pub, "pub" },
+        .{ TokenType.Enum, "enum" },
+        .{ TokenType.Struct, "struct" },
+        .{ TokenType.Impl, "impl" },
+        .{ TokenType.Switch, "switch" },
+        .{ TokenType.For, "for" },
+        .{ TokenType.While, "while" },
+        .{ TokenType.Break, "break" },
         .{ TokenType.Semi, ";" },
         .{ TokenType.Comma, "," },
         .{ TokenType.Dot, "." },
