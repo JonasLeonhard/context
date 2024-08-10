@@ -2,6 +2,32 @@ const Token = @import("token.zig").Token;
 const std = @import("std");
 const ArrayList = std.ArrayList;
 
+pub const Program = struct {
+    allocator: std.mem.Allocator,
+    statements: ArrayList(Statement),
+
+    pub fn init(allocator: std.mem.Allocator) Program {
+        return .{
+            .allocator = allocator,
+            .statements = std.ArrayList(Statement).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Program) void {
+        self.statements.deinit();
+    }
+
+    pub fn tokenLiteral(self: Program) []u8 {
+        if (self.statements.len > 0) {
+            return self.statements[0].tokenLiteral();
+        } else {
+            return "";
+        }
+    }
+};
+
+// _____________________________________________
+
 pub const Statement = union(enum) {
     declare_assign: DeclareAssignStatement,
     return_: ReturnStatement,
@@ -48,31 +74,5 @@ pub const IdentifierExpression = struct {
 
     pub fn tokenLiteral(self: IdentifierExpression) []const u8 {
         return self.token.literal;
-    }
-};
-
-// _____________________________________________
-
-pub const Program = struct {
-    allocator: std.mem.Allocator,
-    statements: ArrayList(Statement),
-
-    pub fn init(allocator: std.mem.Allocator) Program {
-        return .{
-            .allocator = allocator,
-            .statements = std.ArrayList(Statement).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *Program) void {
-        self.statements.deinit();
-    }
-
-    pub fn tokenLiteral(self: Program) []u8 {
-        if (self.statements.len > 0) {
-            return self.statements[0].tokenLiteral();
-        } else {
-            return "";
-        }
     }
 };
