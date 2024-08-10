@@ -51,7 +51,6 @@ pub const TokenType = union(enum) {
     /// defer
     Defer,
 
-
     //  -------- One-char tokens:  --------
     /// ";"
     Semi,

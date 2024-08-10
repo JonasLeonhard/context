@@ -6,6 +6,7 @@ const ast = @import("ast.zig");
 const Program = ast.Program;
 const Statement = ast.Statement;
 const DeclareAssignStatement = ast.DeclareAssignStatement;
+const ReturnStatement = ast.ReturnStatement;
 const IdentifierExpression = ast.IdentifierExpression;
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("token.zig").Token;
@@ -58,6 +59,7 @@ pub const Parser = struct {
     fn parseStatement(self: *Parser) !?Statement {
         switch (self.cur_token.type) {
             .DeclareAssign => return try self.parseDeclareAssignStatement(),
+            .Return => return try self.parseReturnStatement(),
             else => {
                 if (self.peek_token.type != .Unknown or self.peek_token.type != .Eof) {
                     self.nextToken();
@@ -69,19 +71,33 @@ pub const Parser = struct {
     }
 
     fn parseDeclareAssignStatement(self: *Parser) !?Statement {
+        const declare_assign_token = self.cur_token;
         const ident_expr = IdentifierExpression{ .token = self.prev_token, .value = self.prev_token.literal };
+
         if (!self.expectPrevAndEat(.Ident)) {
             const err = try fmt.allocPrint(self.allocator, "Error parsing ':=' declare_assign. Expected identifier before declare_assign, but got: {s}\n", .{self.prev_token.literal});
             try self.errors.append(err);
             return null;
         }
-        const statement = DeclareAssignStatement{ .token = self.prev_token, .name = ident_expr, .value = null };
-
+        const statement = DeclareAssignStatement{ .token = declare_assign_token, .name = ident_expr, .value = null }; // TODO: parse val
         while (!self.curTokenIs(TokenType.Semi)) {
             self.nextToken();
         }
 
         return Statement{ .declare_assign = statement };
+    }
+
+    fn parseReturnStatement(self: *Parser) !?Statement {
+        const return_token = self.cur_token;
+        self.nextToken();
+
+        // TODO: were skipping the expressions until we encounter a semi colon;
+        while (!self.curTokenIs(TokenType.Semi)) {
+            self.nextToken();
+        }
+
+        const statement = ReturnStatement{ .token = return_token, .returnValue = null }; // TODO: parse val
+        return Statement{ .return_ = statement };
     }
 
     fn curTokenIs(self: Parser, token_type: TokenType) bool {
@@ -139,6 +155,16 @@ fn validDeclareAssignStatement(statement: Statement, name: []const u8) !bool {
     }
 }
 
+fn validReturnStatement(statement: Statement) !bool {
+    switch (statement) {
+        .return_ => {
+            try testing.expectEqualStrings(statement.tokenLiteral(), "return");
+            return true;
+        },
+        else => return false,
+    }
+}
+
 test "DeclareAssign statements" {
     const input =
         \\x := 5;
@@ -154,15 +180,37 @@ test "DeclareAssign statements" {
     defer program.deinit();
     try parser.checkParserErrors();
 
-    std.debug.print("\nDeclareAssignStatements: {}\n\n", .{program.statements});
-
     try testing.expectEqual(program.statements.items.len, 3);
 
+    // TODO: test expressions here aswell
     const tests = .{ .{ .expected_identifier = "x" }, .{ .expected_identifier = "y" }, .{ .expected_identifier = "foobar" } };
 
     inline for (0.., tests) |i, test_item| {
         const statement = program.statements.items[i];
         const is_valid = try validDeclareAssignStatement(statement, test_item.expected_identifier);
+        try testing.expect(is_valid);
+    }
+}
+
+test "Return statements" {
+    const input =
+        \\return 5;
+        \\return 9000;
+    ;
+
+    const lexer = Lexer.init(input);
+    var parser = Parser.init(test_allocator, lexer);
+    defer parser.deinit();
+
+    var program = try parser.parseProgram();
+    defer program.deinit();
+    try parser.checkParserErrors();
+
+    try testing.expectEqual(program.statements.items.len, 2);
+
+    // TODO: test expressions here aswell
+    for (program.statements.items) |statement| {
+        const is_valid = try validReturnStatement(statement);
         try testing.expect(is_valid);
     }
 }

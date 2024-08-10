@@ -4,9 +4,9 @@ const ArrayList = std.ArrayList;
 
 pub const Statement = union(enum) {
     declare_assign: DeclareAssignStatement,
-    todo: DeclareAssignStatement, // TODO added because of match with single arm
+    return_: ReturnStatement,
 
-    pub fn tokenLiteral(self: Statement) []u8 {
+    pub fn tokenLiteral(self: Statement) []const u8 {
         switch (self) {
             inline else => |case| return case.tokenLiteral(),
         }
@@ -30,6 +30,14 @@ pub const DeclareAssignStatement = struct {
     name: IdentifierExpression,
     value: ?Expression,
     pub fn tokenLiteral(self: DeclareAssignStatement) []const u8 {
+        return self.token.literal;
+    }
+};
+
+pub const ReturnStatement = struct {
+    token: Token,
+    returnValue: ?Expression,
+    pub fn tokenLiteral(self: ReturnStatement) []const u8 {
         return self.token.literal;
     }
 };
