@@ -1,4 +1,6 @@
 const std = @import("std");
+const isDigit = std.ascii.isDigit;
+const isAlphabetic = std.ascii.isAlphabetic;
 const testing = std.testing;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
@@ -349,12 +351,12 @@ pub const Lexer = struct {
                 }
             },
             else => {
-                if (Lexer.isLetter(self.char)) {
+                if (isAlphabetic(self.char)) {
                     const ident = self.eatIdentifier();
                     tok.literal = ident;
                     tok.type = Token.lookupIdent(ident);
                     return tok; // INFO: readIdentifier advances the next char, so we have to return here!
-                } else if (Lexer.isDigit(self.char)) {
+                } else if (isDigit(self.char)) {
                     tok.type = TokenType{ .Literal = TokenLiteral.Int }; // TODO: implement other token literal types!
                     tok.literal = self.eatNumber();
                     return tok; // INFO: readNumber advances the next char, so we have to return here!
@@ -382,7 +384,7 @@ pub const Lexer = struct {
     fn eatIdentifier(self: *Lexer) []const u8 {
         const position = self.position;
 
-        while (Lexer.isLetter(self.char)) {
+        while (isAlphabetic(self.char)) {
             self.eatChar();
         }
 
@@ -392,7 +394,7 @@ pub const Lexer = struct {
     fn eatNumber(self: *Lexer) []const u8 {
         const position = self.position;
 
-        while (Lexer.isDigit(self.char)) {
+        while (isDigit(self.char)) {
             self.eatChar();
         }
 
@@ -414,14 +416,6 @@ pub const Lexer = struct {
         while (self.char == ' ' or self.char == '\t' or self.char == '\n' or self.char == '\r') {
             self.eatChar();
         }
-    }
-
-    fn isLetter(char: u8) bool {
-        return ('a' <= char and char <= 'z') or ('A' <= char and char <= 'Z') or (char == '_');
-    }
-
-    fn isDigit(char: u8) bool {
-        return '0' <= char and char <= '9';
     }
 };
 
