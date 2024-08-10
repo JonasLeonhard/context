@@ -40,7 +40,7 @@ pub const Statement = union(enum) {
 };
 
 pub const Expression = union(enum) {
-    identifier: IdentifierExpression,
+    ident_expr: IdentifierExpression,
 
     pub fn tokenLiteral(self: Statement) []const u8 {
         switch (self) {
@@ -51,26 +51,34 @@ pub const Expression = union(enum) {
 
 // _____________________________________________
 
+/// <ident> := <expr>; // something like foo := 5;
 pub const DeclareAssignStatement = struct {
     token: Token,
-    name: IdentifierExpression,
-    value: ?Expression,
+    ident_expr: IdentifierExpression,
+    expr: ?Expression,
     pub fn tokenLiteral(self: DeclareAssignStatement) []const u8 {
         return self.token.literal;
     }
 };
 
+/// return <expression>; // something like return 5;
 pub const ReturnStatement = struct {
     token: Token,
-    returnValue: ?Expression,
+    expr: ?Expression,
     pub fn tokenLiteral(self: ReturnStatement) []const u8 {
         return self.token.literal;
     }
 };
 
+/// <expression>; // something like x + 10;
+pub const ExpressionStatement = struct { value: ?Expression };
+
+// _____________________________________________
+
+/// <ident> // something like foo
 pub const IdentifierExpression = struct {
     token: Token,
-    value: []const u8,
+    ident: []const u8,
 
     pub fn tokenLiteral(self: IdentifierExpression) []const u8 {
         return self.token.literal;

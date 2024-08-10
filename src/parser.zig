@@ -72,14 +72,14 @@ pub const Parser = struct {
 
     fn parseDeclareAssignStatement(self: *Parser) !?Statement {
         const declare_assign_token = self.cur_token;
-        const ident_expr = IdentifierExpression{ .token = self.prev_token, .value = self.prev_token.literal };
+        const ident_expr = IdentifierExpression{ .token = self.prev_token, .ident = self.prev_token.literal };
 
         if (!self.expectPrevAndEat(.Ident)) {
             const err = try fmt.allocPrint(self.allocator, "Error parsing ':=' declare_assign. Expected identifier before declare_assign, but got: {s}\n", .{self.prev_token.literal});
             try self.errors.append(err);
             return null;
         }
-        const statement = DeclareAssignStatement{ .token = declare_assign_token, .name = ident_expr, .value = null }; // TODO: parse val
+        const statement = DeclareAssignStatement{ .token = declare_assign_token, .ident_expr = ident_expr, .expr = null }; // TODO: parse val
         while (!self.curTokenIs(TokenType.Semi)) {
             self.nextToken();
         }
@@ -96,7 +96,7 @@ pub const Parser = struct {
             self.nextToken();
         }
 
-        const statement = ReturnStatement{ .token = return_token, .returnValue = null }; // TODO: parse val
+        const statement = ReturnStatement{ .token = return_token, .expr = null }; // TODO: parse val
         return Statement{ .return_ = statement };
     }
 
@@ -143,12 +143,12 @@ pub const Parser = struct {
     }
 };
 
-fn validDeclareAssignStatement(statement: Statement, name: []const u8) !bool {
+fn validDeclareAssignStatement(statement: Statement, ident: []const u8) !bool {
     switch (statement) {
         .declare_assign => |declareAssign| {
             try testing.expectEqualStrings(declareAssign.tokenLiteral(), ":=");
-            try testing.expectEqualStrings(declareAssign.name.value, name);
-            try testing.expectEqualStrings(declareAssign.name.tokenLiteral(), name);
+            try testing.expectEqualStrings(declareAssign.ident_expr.ident, ident);
+            try testing.expectEqualStrings(declareAssign.ident_expr.tokenLiteral(), ident);
             return true;
         },
         else => return false,
