@@ -154,13 +154,22 @@ test "Program toString()" {
     defer program.deinit();
 
     const declare_assign_statement = Statement{
-        .declare_assign = DeclareAssignStatement{
+        .declare_assign = .{
             // foo
-            .ident_expr = IdentifierExpression{ .token = Token{ .type = .Ident, .literal = "foo" }, .ident = "foo" },
+            .ident_expr = .{
+                .token = .{ .type = .Ident, .literal = "foo" },
+                .ident = "foo",
+            },
             // :=
-            .token = Token{ .type = .DeclareAssign, .literal = ":=" },
+            .token = .{
+                .type = .DeclareAssign,
+                .literal = ":=",
+            },
             // bar
-            .expr = Expression{ .ident_expr = IdentifierExpression{ .token = Token{ .type = .Ident, .literal = "bar" }, .ident = "bar" } },
+            .expr = .{ .ident_expr = .{
+                .token = .{ .type = .Ident, .literal = "bar" },
+                .ident = "bar",
+            } },
         },
     };
     try program.statements.append(declare_assign_statement);

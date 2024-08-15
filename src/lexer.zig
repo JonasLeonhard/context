@@ -33,24 +33,24 @@ pub const Lexer = struct {
 
         switch (self.char) {
             0 => {
-                tok.type = TokenType.Eof;
+                tok.type = .Eof;
                 tok.literal = "";
             },
             '=' => {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '=' => {
-                        tok.type = TokenType.EqEq;
+                        tok.type = .EqEq;
                         tok.literal = "==";
                         self.eatChar();
                     },
                     '>' => {
-                        tok.type = TokenType.Arrow;
+                        tok.type = .Arrow;
                         tok.literal = "=>";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.Eq;
+                        tok.type = .Eq;
                         tok.literal = "=";
                     },
                 }
@@ -58,11 +58,11 @@ pub const Lexer = struct {
             ':' => {
                 const peeked = self.peek(0);
                 if (peeked == '=') {
-                    tok.type = TokenType.DeclareAssign;
+                    tok.type = .DeclareAssign;
                     tok.literal = ":=";
                     self.eatChar();
                 } else {
-                    tok.type = TokenType.Colon;
+                    tok.type = .Colon;
                     tok.literal = ":";
                 }
             },
@@ -70,12 +70,12 @@ pub const Lexer = struct {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '=' => {
-                        tok.type = TokenType.AddAssign;
+                        tok.type = .AddAssign;
                         tok.literal = "+=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.Plus;
+                        tok.type = .Plus;
                         tok.literal = "+";
                     },
                 }
@@ -84,12 +84,12 @@ pub const Lexer = struct {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '=' => {
-                        tok.type = TokenType.SubAssign;
+                        tok.type = .SubAssign;
                         tok.literal = "-=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.Minus;
+                        tok.type = .Minus;
                         tok.literal = "-";
                     },
                 }
@@ -99,12 +99,12 @@ pub const Lexer = struct {
 
                 switch (peeked) {
                     '=' => {
-                        tok.type = TokenType.NotEq;
+                        tok.type = .NotEq;
                         tok.literal = "!=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.Bang;
+                        tok.type = .Bang;
                         tok.literal = "!";
                     },
                 }
@@ -113,12 +113,12 @@ pub const Lexer = struct {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '=' => {
-                        tok.type = TokenType.MulAssign;
+                        tok.type = .MulAssign;
                         tok.literal = "*=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.Star;
+                        tok.type = .Star;
                         tok.literal = "*";
                     },
                 }
@@ -127,7 +127,7 @@ pub const Lexer = struct {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '/' => {
-                        tok.type = TokenType.LineComment;
+                        tok.type = .LineComment;
                         tok.literal = "//";
                         self.eatChar();
                     },
@@ -151,16 +151,16 @@ pub const Lexer = struct {
                             }
                         }
 
-                        tok.type = TokenType.BlockComment;
+                        tok.type = .BlockComment;
                         tok.literal = self.input[start_pos..end_pos];
                     },
                     '=' => {
-                        tok.type = TokenType.DivAssign;
+                        tok.type = .DivAssign;
                         tok.literal = "/=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.Slash;
+                        tok.type = .Slash;
                         tok.literal = "/";
                     },
                 }
@@ -169,19 +169,19 @@ pub const Lexer = struct {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '<' => {
-                        tok.type = TokenType.LtLt;
+                        tok.type = .LtLt;
                         tok.literal = "<<";
                         self.eatChar();
 
                         const peeked_2 = self.peek(0);
                         if (peeked_2 == '=') {
-                            tok.type = TokenType.LtLtAssign;
+                            tok.type = .LtLtAssign;
                             tok.literal = "<<=";
                             self.eatChar();
                         }
                     },
                     else => {
-                        tok.type = TokenType.Lt;
+                        tok.type = .Lt;
                         tok.literal = "<";
                     },
                 }
@@ -190,70 +190,70 @@ pub const Lexer = struct {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '>' => {
-                        tok.type = TokenType.GtGt;
+                        tok.type = .GtGt;
                         tok.literal = ">>";
                         self.eatChar();
 
                         const peeked_2 = self.peek(0);
                         if (peeked_2 == '=') {
-                            tok.type = TokenType.GtGtAssign;
+                            tok.type = .GtGtAssign;
                             tok.literal = ">>=";
                             self.eatChar();
                         }
                     },
                     else => {
-                        tok.type = TokenType.Gt;
+                        tok.type = .Gt;
                         tok.literal = ">";
                     },
                 }
             },
             ',' => {
-                tok.type = TokenType.Comma;
+                tok.type = .Comma;
                 tok.literal = ",";
             },
             ';' => {
-                tok.type = TokenType.Semi;
+                tok.type = .Semi;
                 tok.literal = ";";
             },
             '(' => {
-                tok.type = TokenType.OpenParen;
+                tok.type = .OpenParen;
                 tok.literal = "(";
             },
             ')' => {
-                tok.type = TokenType.CloseParen;
+                tok.type = .CloseParen;
                 tok.literal = ")";
             },
             '{' => {
-                tok.type = TokenType.OpenBrace;
+                tok.type = .OpenBrace;
                 tok.literal = "{";
             },
             '}' => {
-                tok.type = TokenType.CloseBrace;
+                tok.type = .CloseBrace;
                 tok.literal = "}";
             },
             '[' => {
-                tok.type = TokenType.OpenBracket;
+                tok.type = .OpenBracket;
                 tok.literal = "[";
             },
             ']' => {
-                tok.type = TokenType.CloseBracket;
+                tok.type = .CloseBracket;
                 tok.literal = "]";
             },
             '&' => {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '&' => {
-                        tok.type = TokenType.AndAnd;
+                        tok.type = .AndAnd;
                         tok.literal = "&&";
                         self.eatChar();
                     },
                     '=' => {
-                        tok.type = TokenType.BitwiseAssign;
+                        tok.type = .BitwiseAssign;
                         tok.literal = "&=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.And;
+                        tok.type = .And;
                         tok.literal = "&";
                     },
                 }
@@ -262,76 +262,76 @@ pub const Lexer = struct {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '.' => {
-                        tok.type = TokenType.DotDot;
+                        tok.type = .DotDot;
                         tok.literal = "..";
                         self.eatChar();
 
                         const peeked_2 = self.peek(0);
                         if (peeked_2 == '=') {
-                            tok.type = TokenType.DotDotEq;
+                            tok.type = .DotDotEq;
                             tok.literal = "..=";
                             self.eatChar();
                         }
                     },
                     else => {
-                        tok.type = TokenType.Dot;
+                        tok.type = .Dot;
                         tok.literal = ".";
                     },
                 }
             },
             '@' => {
-                tok.type = TokenType.At;
+                tok.type = .At;
                 tok.literal = "@";
             },
             '#' => {
-                tok.type = TokenType.Pound;
+                tok.type = .Pound;
                 tok.literal = "#";
             },
             '~' => {
-                tok.type = TokenType.Tilde;
+                tok.type = .Tilde;
                 tok.literal = "~";
             },
             '?' => {
-                tok.type = TokenType.Question;
+                tok.type = .Question;
                 tok.literal = "?";
             },
             '$' => {
-                tok.type = TokenType.Dollar;
+                tok.type = .Dollar;
                 tok.literal = "$";
             },
             '|' => {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '|' => {
-                        tok.type = TokenType.OrOr;
+                        tok.type = .OrOr;
                         tok.literal = "||";
                         self.eatChar();
                     },
                     '=' => {
-                        tok.type = TokenType.OrAssign;
+                        tok.type = .OrAssign;
                         tok.literal = "|=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.Or;
+                        tok.type = .Or;
                         tok.literal = "|";
                     },
                 }
             },
             '\\' => {
-                tok.type = TokenType.BackSlash;
+                tok.type = .BackSlash;
                 tok.literal = "\\";
             },
             '^' => {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '=' => {
-                        tok.type = TokenType.CaretAssign;
+                        tok.type = .CaretAssign;
                         tok.literal = "^=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.Caret;
+                        tok.type = .Caret;
                         tok.literal = "^";
                     },
                 }
@@ -340,12 +340,12 @@ pub const Lexer = struct {
                 const peeked = self.peek(0);
                 switch (peeked) {
                     '=' => {
-                        tok.type = TokenType.ArithmeticAssign;
+                        tok.type = .ArithmeticAssign;
                         tok.literal = "%=";
                         self.eatChar();
                     },
                     else => {
-                        tok.type = TokenType.Percent;
+                        tok.type = .Percent;
                         tok.literal = "%";
                     },
                 }
@@ -357,7 +357,7 @@ pub const Lexer = struct {
                     tok.type = Token.lookupIdent(ident);
                     return tok; // INFO: readIdentifier advances the next char, so we have to return here!
                 } else if (isDigit(self.char)) {
-                    tok.type = TokenType{ .Literal = TokenLiteral.Int }; // TODO: implement other token literal types!
+                    tok.type = .{ .Literal = TokenLiteral.Int }; // TODO: implement other token literal types!
                     tok.literal = self.eatNumber();
                     return tok; // INFO: readNumber advances the next char, so we have to return here!
                 }
@@ -499,7 +499,7 @@ test "Next Token" {
 
     const tests = .{
         .{ TokenType.Ident, "xyz" },
-        .{ TokenType{ .Literal = TokenLiteral.Int }, "10" },
+        .{ TokenType{ .Literal = .Int }, "10" },
         .{ TokenType.Mut, "mut" },
         .{ TokenType.Return, "return" },
         .{ TokenType.If, "if" },
