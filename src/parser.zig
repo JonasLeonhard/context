@@ -11,6 +11,7 @@ const ExpressionStatement = ast.ExpressionStatement;
 const Expression = ast.Expression;
 const IdentifierExpression = ast.IdentifierExpression;
 const IntLiteralExpression = ast.IntLiteralExpression;
+const PrefixExpression = ast.PrefixExpression;
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
@@ -56,6 +57,8 @@ pub const Parser = struct {
         // registerPrefix
         try parser.prefix_parse_fn_map.put(.Ident, parseIdentifier);
         try parser.prefix_parse_fn_map.put(.{ .Literal = .Int }, parseIntegerLiteral);
+        try parser.prefix_parse_fn_map.put(.Bang, parsePrefixExpression);
+        try parser.prefix_parse_fn_map.put(.Minus, parsePrefixExpression);
 
         // read two tokens, so curToken and peekToken are both set
         parser.nextToken();
@@ -208,6 +211,8 @@ pub const Parser = struct {
         const prefix = self.prefix_parse_fn_map.get(self.cur_token.type);
 
         if (prefix == null) {
+            const err_msg = try std.fmt.allocPrint(self.internal_alloc, "no prefix parse function for {any} found.", .{self.cur_token.type});
+            try self.errors.append(err_msg);
             return null;
         }
 
@@ -235,46 +240,184 @@ pub const Parser = struct {
             },
         };
     }
+
+    fn parsePrefixExpression(self: *Parser) !Expression {
+        const operator = self.cur_token.literal;
+        const token = self.cur_token;
+
+        self.nextToken();
+
+        const right = try self.parseExpression(.Prefix);
+
+        if (right == null) {
+            const err_msg = try std.fmt.allocPrint(self.internal_alloc, "could not parse right for prefix expression: {s} at {any}", .{ operator, token });
+            try self.errors.append(err_msg);
+            return error.PrefixExpressionDoesNotExist;
+        }
+
+        return Expression{
+            .prefix_expr = .{
+                .operator = operator,
+                .token = token,
+                .right = &right.?,
+            },
+        };
+    }
 };
+
+pub fn expectParsedEqStatements(input: []const u8, expected_statements: []const Statement) !void {
+    const lexer = Lexer.init(input);
+    var parser = try Parser.init(testing.allocator, lexer);
+    defer parser.deinit();
+
+    var program = try parser.parseProgram(testing.allocator);
+    defer program.deinit();
+
+    try parser.checkParserErrors();
+
+    if (expected_statements.len != program.statements.items.len) {
+        std.debug.print("\nMismatch in number of statements:\n", .{});
+        std.debug.print("Expected {} statements, but got {}.\n\n", .{ expected_statements.len, program.statements.items.len });
+        std.debug.print("Input: {s}\n\n", .{input});
+        std.debug.print("Parsed statements:\n\n", .{});
+        for (program.statements.items, 0..) |stmt, i| {
+            std.debug.print("Statement {}:\n {}\n\n", .{ i, std.json.fmt(stmt, .{ .whitespace = .indent_2 }) });
+        }
+        return error.StatementCountMismatch;
+    }
+
+    for (expected_statements, 0..) |expected, i| {
+        const actual = program.statements.items[i];
+        expectStatementEq(expected, actual) catch |err| {
+            std.debug.print("\nMismatch in statement {}:\n", .{i});
+            std.debug.print("Expected: {}\n", .{expected});
+            std.debug.print("Actual: {}\n", .{actual});
+            return err;
+        };
+    }
+}
+
+fn expectStatementEq(expected: Statement, actual: Statement) !void {
+    if (@as(std.meta.Tag(Statement), expected) != @as(std.meta.Tag(Statement), actual)) {
+        std.debug.print("Statement type mismatch. Expected: {}, got: {}\n", .{ @as(std.meta.Tag(Statement), expected), @as(std.meta.Tag(Statement), actual) });
+        return error.StatementTypeMismatch;
+    }
+
+    switch (expected) {
+        .declare_assign => |declare_assign| {
+            const actual_declare_assign = actual.declare_assign;
+
+            try testing.expectEqual(declare_assign.token.type, actual_declare_assign.token.type);
+            try testing.expectEqualStrings(declare_assign.token.literal, actual_declare_assign.token.literal);
+            try expectIdentifierExpressionEq(declare_assign.ident_expr, actual_declare_assign.ident_expr);
+
+            // TODO: dont test .expr until implemented
+            // if (declare_assign.expr) |expr| {
+            //     try testing.expectEqual(expr, actual_declare_assign.expr);
+            //     try expectExpressionEq(expr, actual_declare_assign.expr.?);
+            // }
+        },
+        .return_ => |return_| {
+            const actual_return = actual.return_;
+
+            try testing.expectEqual(return_.token.type, actual_return.token.type);
+            try testing.expectEqualStrings(return_.token.literal, actual_return.token.literal);
+
+            // TODO: dont test .expr until implemented
+            // if (return_.expr) |expr| {
+            //     try testing.expectEqual(expr, actual_return.expr);
+            //     try expectExpressionEq(expr, actual_return.expr.?);
+            // }
+        },
+        .expression => |expression| {
+            const actual_expression = actual.expression;
+
+            try testing.expectEqual(expression.token.type, actual_expression.token.type);
+            try testing.expectEqualStrings(expression.token.literal, actual_expression.token.literal);
+
+            // TODO: dont test .expr until implemented
+            // if (expression.expr) |expr| {
+            //     try testing.expectEqual(expr, actual_expression.expr);
+            //     try expectExpressionEq(expr, actual_expression.expr.?);
+            // }
+        },
+    }
+}
+
+fn expectExpressionEq(expected: Expression, actual: Expression) !void {
+    if (@as(std.meta.Tag(Expression), expected) != @as(std.meta.Tag(Expression), actual)) {
+        std.debug.print("Expression type mismatch. Expected: {}, got: {}\n", .{ @as(std.meta.Tag(Expression), expected), @as(std.meta.Tag(Expression), actual) });
+        return error.ExpressionTypeMismatch;
+    }
+
+    switch (expected) {
+        .ident_expr => |ident_expr| {
+            try expectIdentifierExpressionEq(ident_expr, actual.ident_expr);
+        },
+        .int_literal_expr => |int_literal_expr| {
+            try expectIntLiteralExpressionEq(int_literal_expr, actual.int_literal_expr);
+        },
+        .prefix_expr => |prefix_expr| {
+            try expectPrefixExpressionEq(prefix_expr, actual.prefix_expr);
+        },
+    }
+}
+
+fn expectIdentifierExpressionEq(expected: IdentifierExpression, actual: IdentifierExpression) !void {
+    try testing.expectEqual(expected.token.type, actual.token.type);
+    try testing.expectEqualStrings(expected.token.literal, actual.token.literal);
+    try testing.expectEqualStrings(expected.value, actual.value);
+}
+
+fn expectIntLiteralExpressionEq(expected: IntLiteralExpression, actual: IntLiteralExpression) !void {
+    try testing.expectEqual(expected.token.type, actual.token.type);
+    try testing.expectEqualStrings(expected.token.literal, actual.token.literal);
+    try testing.expectEqual(expected.value, actual.value);
+}
+
+fn expectPrefixExpressionEq(expected: PrefixExpression, actual: PrefixExpression) anyerror!void {
+    try testing.expectEqual(expected.token.type, actual.token.type);
+    try testing.expectEqualStrings(expected.token.literal, actual.token.literal);
+    try testing.expectEqualStrings(expected.operator, actual.operator);
+    try expectExpressionEq(expected.right.*, actual.right.*);
+}
 
 test "DeclareAssign Statement" {
     const input =
         \\x := 5;
     ;
 
-    const lexer = Lexer.init(input);
-    var parser = try Parser.init(test_allocator, lexer);
-    defer parser.deinit();
-
-    var program = try parser.parseProgram(test_allocator);
-    defer program.deinit();
-    try parser.checkParserErrors();
-
-    const program_str = try program.toString(test_allocator);
-    defer test_allocator.free(program_str);
-
     const tests = [_]Statement{
         .{
             // x := 5;
             .declare_assign = .{
-                .ident_expr = .{ .value = "x", .token = .{ .type = .Ident, .literal = "x" } },
-                .token = .{ .type = .DeclareAssign, .literal = ":=" },
-                .expr = .{ .ident_expr = .{ .token = .{ .type = .{ .Literal = .Int }, .literal = "5" }, .value = "5" } },
+                .ident_expr = .{
+                    .value = "x",
+                    .token = .{
+                        .type = .Ident,
+                        .literal = "x",
+                    },
+                },
+                .token = .{
+                    .type = .DeclareAssign,
+                    .literal = ":=",
+                },
+                .expr = .{
+                    .int_literal_expr = .{
+                        .token = .{
+                            .type = .{
+                                .Literal = .Int,
+                            },
+                            .literal = "5",
+                        },
+                        .value = 5,
+                    },
+                },
             },
         },
     };
 
-    try testing.expectEqual(tests.len, program.statements.items.len);
-
-    for (0.., tests) |i, expected| {
-        const actual = program.statements.items[i];
-        try testing.expectEqual(expected.declare_assign.token.type, actual.declare_assign.token.type);
-        try testing.expectEqualStrings(expected.declare_assign.token.literal, actual.declare_assign.token.literal);
-        try testing.expectEqualStrings(expected.declare_assign.ident_expr.value, actual.declare_assign.ident_expr.value);
-        try testing.expectEqual(expected.declare_assign.ident_expr.token.type, actual.declare_assign.ident_expr.token.type);
-        try testing.expectEqualStrings(expected.declare_assign.ident_expr.token.literal, actual.declare_assign.ident_expr.token.literal);
-        // TODO: test expr?
-    }
+    try expectParsedEqStatements(input, &tests);
 }
 
 test "Return Statement" {
@@ -282,92 +425,144 @@ test "Return Statement" {
         \\return 5;
     ;
 
-    const lexer = Lexer.init(input);
-    var parser = try Parser.init(test_allocator, lexer);
-    defer parser.deinit();
-
-    var program = try parser.parseProgram(test_allocator);
-    defer program.deinit();
-    try parser.checkParserErrors();
-
     const tests = [_]Statement{
         // return 5;
         .{
             .return_ = .{
-                .token = .{ .type = .Return, .literal = "return" },
-                .expr = .{ .ident_expr = .{ .token = .{ .type = .{ .Literal = .Int }, .literal = "5" }, .value = "5" } },
+                .token = .{
+                    .type = .Return,
+                    .literal = "return",
+                },
+                .expr = .{
+                    .int_literal_expr = .{
+                        .token = .{
+                            .type = .{
+                                .Literal = .Int,
+                            },
+                            .literal = "5",
+                        },
+                        .value = 5,
+                    },
+                },
             },
         },
     };
 
-    try testing.expectEqual(tests.len, program.statements.items.len);
-
-    for (0.., tests) |i, expected| {
-        const actual = program.statements.items[i];
-        try testing.expectEqual(expected.return_.token.type, actual.return_.token.type);
-        try testing.expectEqualStrings(expected.return_.token.literal, actual.return_.token.literal);
-        // TODO test expr?
-    }
+    try expectParsedEqStatements(input, &tests);
 }
 
 test "Statement Expression" {
     const input = "foobar;";
 
-    const lexer = Lexer.init(input);
-    var parser = try Parser.init(test_allocator, lexer);
-    defer parser.deinit();
-
-    var program = try parser.parseProgram(test_allocator);
-    defer program.deinit();
-    try parser.checkParserErrors();
-
     const tests = [_]Statement{
         // foobar;
         .{
             .expression = .{
-                .token = .{ .type = .Ident, .literal = "foobar" },
+                .token = .{
+                    .type = .Ident,
+                    .literal = "foobar",
+                },
                 .expr = null, // TODO
             },
         },
     };
 
-    try testing.expectEqual(tests.len, program.statements.items.len);
-
-    for (0.., tests) |i, expected| {
-        const actual = program.statements.items[i];
-        try testing.expectEqual(expected.expression.token.type, actual.expression.token.type);
-        try testing.expectEqualStrings(expected.expression.token.literal, actual.expression.token.literal);
-        // TODO: parse expr?
-        // try testing.expectEqual(expected.expression.expr, actual.expression.expr);
-    }
+    try expectParsedEqStatements(input, &tests);
 }
 
 test "Integer Literal Expression" {
     const input = "5;";
 
-    const lexer = Lexer.init(input);
-    var parser = try Parser.init(test_allocator, lexer);
-    defer parser.deinit();
+    const tests = [_]Statement{
+        // foobar;
+        .{
+            .expression = .{
+                .token = .{
+                    .type = .{
+                        .Literal = .Int,
+                    },
+                    .literal = "5",
+                },
+                .expr = .{
+                    .int_literal_expr = .{
+                        .token = .{ .type = .{
+                            .Literal = .Int,
+                        }, .literal = "5" },
+                        .value = 5,
+                    },
+                },
+            },
+        },
+    };
 
-    var program = try parser.parseProgram(test_allocator);
-    defer program.deinit();
-    try parser.checkParserErrors();
+    try expectParsedEqStatements(input, &tests);
+}
+
+test "Prefix Expression" {
+    const input =
+        \\!5;
+        \\-15;
+    ;
 
     const tests = [_]Statement{
         // foobar;
         .{
             .expression = .{
-                .token = .{ .type = .{ .Literal = .Int }, .literal = "5" },
-                .expr = .{ .ident_expr = .{ .token = .{ .type = .{ .Literal = .Int }, .literal = "5" }, .value = "5" } },
+                .token = .{
+                    .type = .Bang,
+                    .literal = "!",
+                },
+                .expr = .{
+                    .prefix_expr = .{
+                        .token = .{
+                            .type = .Bang,
+                            .literal = "!",
+                        },
+                        .operator = "!",
+                        .right = &.{
+                            .int_literal_expr = .{
+                                .token = .{
+                                    .type = .{
+                                        .Literal = .Int,
+                                    },
+                                    .literal = "5",
+                                },
+                                .value = 5,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        .{
+            .expression = .{
+                .token = .{
+                    .type = .Minus,
+                    .literal = "-",
+                },
+                .expr = .{
+                    .prefix_expr = .{
+                        .token = .{
+                            .type = .Minus,
+                            .literal = "-",
+                        },
+                        .operator = "-",
+                        .right = &.{
+                            .int_literal_expr = .{
+                                .token = .{
+                                    .type = .{
+                                        .Literal = .Int,
+                                    },
+                                    .literal = "15",
+                                },
+                                .value = 55,
+                            },
+                        },
+                    },
+                },
             },
         },
     };
 
-    try testing.expectEqual(tests.len, program.statements.items.len);
-
-    for (0.., tests) |i, expected| {
-        const actual = program.statements.items[i];
-        try testing.expectEqual(expected.expression.token.type, actual.expression.token.type);
-        try testing.expectEqualStrings(expected.expression.token.literal, actual.expression.token.literal);
-    }
+    try expectParsedEqStatements(input, &tests);
 }
