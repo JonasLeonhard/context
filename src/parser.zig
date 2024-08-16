@@ -10,12 +10,14 @@ const ReturnStatement = ast.ReturnStatement;
 const ExpressionStatement = ast.ExpressionStatement;
 const Expression = ast.Expression;
 const IdentifierExpression = ast.IdentifierExpression;
+const IntLiteralExpression = ast.IntLiteralExpression;
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 const TokenLiteral = @import("token.zig").TokenLiteral;
 const ArrayList = std.ArrayList;
 const test_allocator = std.testing.allocator;
+const assert = @import("std").debug.assert;
 
 /// A recursive descent pratt parser
 pub const Parser = struct {
@@ -28,7 +30,7 @@ pub const Parser = struct {
         Prefix, // -X or !X
         Call, // myFunction(X)
     };
-    const PrefixParseFunc = *const fn (parser: *Parser) Expression;
+    const PrefixParseFunc = *const fn (parser: *Parser) anyerror!Expression;
     const InfixParseFunc = *const fn (parser: *Parser, expr: Expression) Expression;
 
     lexer: Lexer,
@@ -39,16 +41,21 @@ pub const Parser = struct {
     prefix_parse_fn_map: std.AutoHashMap(TokenType, PrefixParseFunc),
     infix_parse_fn_map: std.AutoHashMap(TokenType, InfixParseFunc),
 
+    /// use this for allocations that are cleaned up in Parser.deinit anyways eg. appending to errors, and are not returned externally
+    internal_alloc: std.mem.Allocator,
+
     pub fn init(alloc: std.mem.Allocator, lex: Lexer) !Parser {
         var parser = Parser{
             .lexer = lex,
             .errors = ArrayList([]const u8).init(alloc),
             .prefix_parse_fn_map = std.AutoHashMap(TokenType, PrefixParseFunc).init(alloc),
             .infix_parse_fn_map = std.AutoHashMap(TokenType, InfixParseFunc).init(alloc),
+            .internal_alloc = alloc,
         };
 
         // registerPrefix
         try parser.prefix_parse_fn_map.put(.Ident, parseIdentifier);
+        try parser.prefix_parse_fn_map.put(.{ .Literal = .Int }, parseIntegerLiteral);
 
         // read two tokens, so curToken and peekToken are both set
         parser.nextToken();
@@ -115,7 +122,7 @@ pub const Parser = struct {
         var program = Program.init(alloc);
 
         while (self.cur_token.type != .Eof) {
-            const statement = try self.parseStatement(alloc);
+            const statement = try self.parseStatement();
             if (statement) |stmt| {
                 try program.statements.append(stmt);
             }
@@ -125,27 +132,27 @@ pub const Parser = struct {
         return program;
     }
 
-    fn parseStatement(self: *Parser, alloc: std.mem.Allocator) !?Statement {
+    fn parseStatement(self: *Parser) !?Statement {
         switch (self.cur_token.type) {
             .Ident => {
                 if (self.peekTokenIs(.DeclareAssign)) {
                     self.nextToken();
-                    return try self.parseDeclareAssignStatement(alloc);
+                    return try self.parseDeclareAssignStatement();
                 } else {
-                    return self.parseExpressionStatement();
+                    return try self.parseExpressionStatement();
                 }
             },
             .Return => return try self.parseReturnStatement(),
             else => {
-                return self.parseExpressionStatement();
+                return try self.parseExpressionStatement();
             },
         }
     }
 
-    fn parseExpressionStatement(self: *Parser) Statement {
-        const statement = .{ .expression = .{
+    fn parseExpressionStatement(self: *Parser) !Statement {
+        const statement = Statement{ .expression = .{
             .token = self.cur_token,
-            .expr = self.parseExpression(.Lowest),
+            .expr = try self.parseExpression(.Lowest),
         } };
 
         if (self.peekTokenIs(.Semi)) {
@@ -155,25 +162,34 @@ pub const Parser = struct {
         return statement;
     }
 
-    fn parseDeclareAssignStatement(self: *Parser, alloc: std.mem.Allocator) !?Statement {
+    fn parseDeclareAssignStatement(self: *Parser) !?Statement {
+        assert(self.cur_token.type == .DeclareAssign);
+
         const declare_assign_token = self.cur_token;
-        const ident_expr = .{ .token = self.prev_token, .ident = self.prev_token.literal };
+        const ident_expr = IdentifierExpression{ .token = self.prev_token, .value = self.prev_token.literal };
 
         if (!self.expectPrevAndEat(.Ident)) {
-            const err = try fmt.allocPrint(alloc, "Error parsing ':=' declare_assign. Expected identifier before declare_assign, but got: {s}\n", .{self.prev_token.literal});
+            const err = try fmt.allocPrint(self.internal_alloc, "Error parsing ':=' declare_assign. Expected identifier before declare_assign, but got: {s}\n", .{self.prev_token.literal});
             try self.errors.append(err);
             return null;
         }
 
-        const statement = .{ .token = declare_assign_token, .ident_expr = ident_expr, .expr = null }; // TODO: parse val
         while (!self.curTokenIs(.Semi)) {
             self.nextToken();
         }
 
-        return .{ .declare_assign = statement };
+        return Statement{
+            .declare_assign = .{
+                .token = declare_assign_token,
+                .ident_expr = ident_expr,
+                .expr = null,
+            },
+        };
     }
 
     fn parseReturnStatement(self: *Parser) !?Statement {
+        assert(self.cur_token.type == .Return);
+
         const return_token = self.cur_token;
         self.nextToken();
 
@@ -182,11 +198,10 @@ pub const Parser = struct {
             self.nextToken();
         }
 
-        const statement = .{ .token = return_token, .expr = null }; // TODO: parse val
-        return .{ .return_ = statement };
+        return Statement{ .return_ = .{ .token = return_token, .expr = null } };
     }
 
-    fn parseExpression(self: *Parser, precedence: Precedence) ?Expression {
+    fn parseExpression(self: *Parser, precedence: Precedence) !?Expression {
         // TODO
         _ = precedence;
 
@@ -196,12 +211,29 @@ pub const Parser = struct {
             return null;
         }
 
-        const left_expr = prefix.?(self);
+        const left_expr = try prefix.?(self);
         return left_expr;
     }
 
-    fn parseIdentifier(self: *Parser) Expression {
-        return .{ .ident_expr = .{ .token = self.cur_token, .ident = self.cur_token.literal } };
+    fn parseIdentifier(self: *Parser) !Expression {
+        assert(self.cur_token.type == .Ident);
+
+        return Expression{ .ident_expr = .{ .token = self.cur_token, .value = self.cur_token.literal } };
+    }
+
+    fn parseIntegerLiteral(self: *Parser) !Expression {
+        const value = std.fmt.parseInt(i32, self.cur_token.literal, 0) catch |err| {
+            const err_msg = try std.fmt.allocPrint(self.internal_alloc, "could not parse {s} as integer literal: {s}", .{ self.cur_token.literal, @errorName(err) });
+            try self.errors.append(err_msg);
+            return err;
+        };
+
+        return Expression{
+            .int_literal_expr = .{
+                .token = self.cur_token,
+                .value = value,
+            },
+        };
     }
 };
 
@@ -221,24 +253,24 @@ test "DeclareAssign Statement" {
     const program_str = try program.toString(test_allocator);
     defer test_allocator.free(program_str);
 
-    try testing.expectEqual(1, program.statements.items.len);
-
     const tests = [_]Statement{
         .{
             // x := 5;
             .declare_assign = .{
-                .ident_expr = .{ .ident = "x", .token = .{ .type = .Ident, .literal = "x" } },
+                .ident_expr = .{ .value = "x", .token = .{ .type = .Ident, .literal = "x" } },
                 .token = .{ .type = .DeclareAssign, .literal = ":=" },
-                .expr = .{ .ident_expr = .{ .token = .{ .type = .{ .Literal = .Int }, .literal = "5" }, .ident = "5" } },
+                .expr = .{ .ident_expr = .{ .token = .{ .type = .{ .Literal = .Int }, .literal = "5" }, .value = "5" } },
             },
         },
     };
+
+    try testing.expectEqual(tests.len, program.statements.items.len);
 
     for (0.., tests) |i, expected| {
         const actual = program.statements.items[i];
         try testing.expectEqual(expected.declare_assign.token.type, actual.declare_assign.token.type);
         try testing.expectEqualStrings(expected.declare_assign.token.literal, actual.declare_assign.token.literal);
-        try testing.expectEqualStrings(expected.declare_assign.ident_expr.ident, actual.declare_assign.ident_expr.ident);
+        try testing.expectEqualStrings(expected.declare_assign.ident_expr.value, actual.declare_assign.ident_expr.value);
         try testing.expectEqual(expected.declare_assign.ident_expr.token.type, actual.declare_assign.ident_expr.token.type);
         try testing.expectEqualStrings(expected.declare_assign.ident_expr.token.literal, actual.declare_assign.ident_expr.token.literal);
         // TODO: test expr?
@@ -258,17 +290,17 @@ test "Return Statement" {
     defer program.deinit();
     try parser.checkParserErrors();
 
-    try testing.expectEqual(1, program.statements.items.len);
-
     const tests = [_]Statement{
         // return 5;
         .{
             .return_ = .{
                 .token = .{ .type = .Return, .literal = "return" },
-                .expr = .{ .ident_expr = .{ .token = .{ .type = .{ .Literal = .Int }, .literal = "5" }, .ident = "5" } },
+                .expr = .{ .ident_expr = .{ .token = .{ .type = .{ .Literal = .Int }, .literal = "5" }, .value = "5" } },
             },
         },
     };
+
+    try testing.expectEqual(tests.len, program.statements.items.len);
 
     for (0.., tests) |i, expected| {
         const actual = program.statements.items[i];
@@ -278,7 +310,7 @@ test "Return Statement" {
     }
 }
 
-test "Expression Statement" {
+test "Statement Expression" {
     const input = "foobar;";
 
     const lexer = Lexer.init(input);
@@ -288,8 +320,6 @@ test "Expression Statement" {
     var program = try parser.parseProgram(test_allocator);
     defer program.deinit();
     try parser.checkParserErrors();
-
-    try testing.expectEqual(1, program.statements.items.len);
 
     const tests = [_]Statement{
         // foobar;
@@ -301,11 +331,43 @@ test "Expression Statement" {
         },
     };
 
+    try testing.expectEqual(tests.len, program.statements.items.len);
+
     for (0.., tests) |i, expected| {
         const actual = program.statements.items[i];
         try testing.expectEqual(expected.expression.token.type, actual.expression.token.type);
         try testing.expectEqualStrings(expected.expression.token.literal, actual.expression.token.literal);
         // TODO: parse expr?
         // try testing.expectEqual(expected.expression.expr, actual.expression.expr);
+    }
+}
+
+test "Integer Literal Expression" {
+    const input = "5;";
+
+    const lexer = Lexer.init(input);
+    var parser = try Parser.init(test_allocator, lexer);
+    defer parser.deinit();
+
+    var program = try parser.parseProgram(test_allocator);
+    defer program.deinit();
+    try parser.checkParserErrors();
+
+    const tests = [_]Statement{
+        // foobar;
+        .{
+            .expression = .{
+                .token = .{ .type = .{ .Literal = .Int }, .literal = "5" },
+                .expr = .{ .ident_expr = .{ .token = .{ .type = .{ .Literal = .Int }, .literal = "5" }, .value = "5" } },
+            },
+        },
+    };
+
+    try testing.expectEqual(tests.len, program.statements.items.len);
+
+    for (0.., tests) |i, expected| {
+        const actual = program.statements.items[i];
+        try testing.expectEqual(expected.expression.token.type, actual.expression.token.type);
+        try testing.expectEqualStrings(expected.expression.token.literal, actual.expression.token.literal);
     }
 }

@@ -25,6 +25,7 @@ pub const Program = struct {
     }
 
     /// Returns a string representation of the program. Requires alloc.free of the return value!
+    /// this doesnt use the stored token literals, but instead uses the parsed Expression and Statement values.
     pub fn toString(self: Program, alloc: std.mem.Allocator) ![]const u8 {
         var buffer = std.ArrayList(u8).init(alloc);
         defer buffer.deinit();
@@ -61,6 +62,7 @@ pub const Statement = union(enum) {
 
 pub const Expression = union(enum) {
     ident_expr: IdentifierExpression,
+    int_literal_expr: IntLiteralExpression,
 
     pub fn tokenLiteral(self: Expression) []const u8 {
         switch (self) {
@@ -68,8 +70,9 @@ pub const Expression = union(enum) {
         }
     }
 
-    pub fn toString(self: Expression) []const u8 {
+    pub fn toString(self: Expression, alloc: std.mem.Allocator) ![]const u8 {
         switch (self) {
+            .int_literal_expr => |case| return try case.toString(alloc),
             inline else => |case| return case.toString(),
         }
     }
@@ -90,7 +93,7 @@ pub const DeclareAssignStatement = struct {
     pub fn toString(self: DeclareAssignStatement, alloc: std.mem.Allocator) ![]const u8 {
         var expr_str: []const u8 = "";
         if (self.expr) |expression| {
-            expr_str = expression.toString();
+            expr_str = try expression.toString(alloc);
         }
         return try std.fmt.allocPrint(alloc, "{s} {s} {s};", .{ self.ident_expr.toString(), self.token.literal, expr_str });
     }
@@ -108,7 +111,7 @@ pub const ReturnStatement = struct {
     pub fn toString(self: ReturnStatement, alloc: std.mem.Allocator) ![]const u8 {
         var expr_str: []const u8 = "";
         if (self.expr) |expression| {
-            expr_str = expression.toString();
+            expr_str = try expression.toString(alloc);
         }
         return try std.fmt.allocPrint(alloc, "{s} {s};", .{ self.tokenLiteral(), expr_str });
     }
@@ -127,7 +130,7 @@ pub const ExpressionStatement = struct {
     pub fn toString(self: ExpressionStatement, alloc: std.mem.Allocator) ![]const u8 {
         var expr_str: []const u8 = "";
         if (self.expr) |expression| {
-            expr_str = expression.toString();
+            expr_str = try expression.toString(alloc);
         }
         return try std.fmt.allocPrint(alloc, "{s};", .{expr_str});
     }
@@ -138,14 +141,28 @@ pub const ExpressionStatement = struct {
 /// <ident> // Example foo
 pub const IdentifierExpression = struct {
     token: Token,
-    ident: []const u8,
+    value: []const u8,
 
     pub fn tokenLiteral(self: IdentifierExpression) []const u8 {
         return self.token.literal;
     }
 
     pub fn toString(self: IdentifierExpression) []const u8 {
-        return self.ident;
+        return self.value;
+    }
+};
+
+/// <INT>;
+pub const IntLiteralExpression = struct {
+    token: Token,
+    value: i32,
+
+    pub fn tokenLiteral(self: IntLiteralExpression) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn toString(self: IntLiteralExpression, alloc: std.mem.Allocator) ![]const u8 {
+        return try std.fmt.allocPrint(alloc, "{d}", .{self.value});
     }
 };
 
@@ -158,7 +175,7 @@ test "Program toString()" {
             // foo
             .ident_expr = .{
                 .token = .{ .type = .Ident, .literal = "foo" },
-                .ident = "foo",
+                .value = "foo",
             },
             // :=
             .token = .{
@@ -168,7 +185,7 @@ test "Program toString()" {
             // bar
             .expr = .{ .ident_expr = .{
                 .token = .{ .type = .Ident, .literal = "bar" },
-                .ident = "bar",
+                .value = "bar",
             } },
         },
     };
