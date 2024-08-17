@@ -12,6 +12,7 @@ const Expression = ast.Expression;
 const IdentifierExpression = ast.IdentifierExpression;
 const IntLiteralExpression = ast.IntLiteralExpression;
 const PrefixExpression = ast.PrefixExpression;
+const InfixExpression = ast.InfixExpression;
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
@@ -19,10 +20,12 @@ const TokenLiteral = @import("token.zig").TokenLiteral;
 const ArrayList = std.ArrayList;
 const test_allocator = std.testing.allocator;
 const assert = @import("std").debug.assert;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 /// A recursive descent pratt parser
 pub const Parser = struct {
     const Precedence = enum {
+        // Sorted by precedence:
         Lowest,
         Equals, // ==
         LessGreater, // > or <
@@ -30,9 +33,23 @@ pub const Parser = struct {
         Product, // *
         Prefix, // -X or !X
         Call, // myFunction(X)
+
+        pub fn fromTokenType(tok: TokenType) @This() {
+            return switch (tok) {
+                .EqEq => .Equals,
+                .NotEq => .Equals,
+                .Lt => .LessGreater,
+                .Gt => .LessGreater,
+                .Plus => .Sum,
+                .Minus => .Sum,
+                .Slash => .Product,
+                .Star => .Product,
+                else => .Lowest,
+            };
+        }
     };
     const PrefixParseFunc = *const fn (parser: *Parser) anyerror!Expression;
-    const InfixParseFunc = *const fn (parser: *Parser, expr: Expression) Expression;
+    const InfixParseFunc = *const fn (parser: *Parser, left: *Expression) anyerror!Expression;
 
     lexer: Lexer,
     prev_token: Token = .{ .type = .Unknown, .literal = "" },
@@ -43,22 +60,39 @@ pub const Parser = struct {
     infix_parse_fn_map: std.AutoHashMap(TokenType, InfixParseFunc),
 
     /// use this for allocations that are cleaned up in Parser.deinit anyways eg. appending to errors, and are not returned externally
-    internal_alloc: std.mem.Allocator,
+    arena: ArenaAllocator,
 
     pub fn init(alloc: std.mem.Allocator, lex: Lexer) !Parser {
-        var parser = Parser{
-            .lexer = lex,
-            .errors = ArrayList([]const u8).init(alloc),
-            .prefix_parse_fn_map = std.AutoHashMap(TokenType, PrefixParseFunc).init(alloc),
-            .infix_parse_fn_map = std.AutoHashMap(TokenType, InfixParseFunc).init(alloc),
-            .internal_alloc = alloc,
-        };
+        var arena = ArenaAllocator.init(alloc);
+        errdefer arena.deinit();
+
+        const errors = ArrayList([]const u8).init(alloc);
+        var prefix_parse_fn_map = std.AutoHashMap(TokenType, PrefixParseFunc).init(alloc);
+        var infix_parse_fn_map = std.AutoHashMap(TokenType, InfixParseFunc).init(alloc);
 
         // registerPrefix
-        try parser.prefix_parse_fn_map.put(.Ident, parseIdentifier);
-        try parser.prefix_parse_fn_map.put(.{ .Literal = .Int }, parseIntegerLiteral);
-        try parser.prefix_parse_fn_map.put(.Bang, parsePrefixExpression);
-        try parser.prefix_parse_fn_map.put(.Minus, parsePrefixExpression);
+        try prefix_parse_fn_map.put(.Ident, parseIdentifier);
+        try prefix_parse_fn_map.put(.{ .Literal = .Int }, parseIntegerLiteral);
+        try prefix_parse_fn_map.put(.Bang, parsePrefixExpression);
+        try prefix_parse_fn_map.put(.Minus, parsePrefixExpression);
+
+        // registerInfix
+        try infix_parse_fn_map.put(.Plus, parseInfixExpression);
+        try infix_parse_fn_map.put(.Minus, parseInfixExpression);
+        try infix_parse_fn_map.put(.Slash, parseInfixExpression);
+        try infix_parse_fn_map.put(.Star, parseInfixExpression);
+        try infix_parse_fn_map.put(.EqEq, parseInfixExpression);
+        try infix_parse_fn_map.put(.NotEq, parseInfixExpression);
+        try infix_parse_fn_map.put(.Lt, parseInfixExpression);
+        try infix_parse_fn_map.put(.Gt, parseInfixExpression);
+
+        var parser = Parser{
+            .lexer = lex,
+            .errors = errors,
+            .prefix_parse_fn_map = prefix_parse_fn_map,
+            .infix_parse_fn_map = infix_parse_fn_map,
+            .arena = arena,
+        };
 
         // read two tokens, so curToken and peekToken are both set
         parser.nextToken();
@@ -71,6 +105,7 @@ pub const Parser = struct {
         self.errors.deinit();
         self.prefix_parse_fn_map.deinit();
         self.infix_parse_fn_map.deinit();
+        self.arena.deinit();
     }
 
     fn nextToken(self: *Parser) void {
@@ -106,6 +141,14 @@ pub const Parser = struct {
             return true;
         }
         return false;
+    }
+
+    fn peekPrecedence(self: Parser) Precedence {
+        return Precedence.fromTokenType(self.peek_token.type);
+    }
+
+    fn curPrecedence(self: Parser) Precedence {
+        return Precedence.fromTokenType(self.cur_token.type);
     }
 
     pub fn checkParserErrors(self: Parser) !void {
@@ -172,7 +215,7 @@ pub const Parser = struct {
         const ident_expr = IdentifierExpression{ .token = self.prev_token, .value = self.prev_token.literal };
 
         if (!self.expectPrevAndEat(.Ident)) {
-            const err = try fmt.allocPrint(self.internal_alloc, "Error parsing ':=' declare_assign. Expected identifier before declare_assign, but got: {s}\n", .{self.prev_token.literal});
+            const err = try fmt.allocPrint(self.arena.allocator(), "Error parsing ':=' declare_assign. Expected identifier before declare_assign, but got: {s}\n", .{self.prev_token.literal});
             try self.errors.append(err);
             return null;
         }
@@ -205,18 +248,26 @@ pub const Parser = struct {
     }
 
     fn parseExpression(self: *Parser, precedence: Precedence) !?Expression {
-        // TODO
-        _ = precedence;
-
         const prefix = self.prefix_parse_fn_map.get(self.cur_token.type);
 
         if (prefix == null) {
-            const err_msg = try std.fmt.allocPrint(self.internal_alloc, "no prefix parse function for {any} found.", .{self.cur_token.type});
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "no prefix parse function for {any} found.", .{self.cur_token.type});
             try self.errors.append(err_msg);
             return null;
         }
 
-        const left_expr = try prefix.?(self);
+        var left_expr = try prefix.?(self);
+
+        while (!self.peekTokenIs(.Semi) and @intFromEnum(precedence) < @intFromEnum(self.peekPrecedence())) {
+            const infix = self.infix_parse_fn_map.get(self.peek_token.type);
+            if (infix == null) {
+                return left_expr;
+            }
+
+            self.nextToken();
+
+            left_expr = try infix.?(self, &left_expr);
+        }
         return left_expr;
     }
 
@@ -228,7 +279,7 @@ pub const Parser = struct {
 
     fn parseIntegerLiteral(self: *Parser) !Expression {
         const value = std.fmt.parseInt(i32, self.cur_token.literal, 0) catch |err| {
-            const err_msg = try std.fmt.allocPrint(self.internal_alloc, "could not parse {s} as integer literal: {s}", .{ self.cur_token.literal, @errorName(err) });
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "could not parse {s} as integer literal: {s}", .{ self.cur_token.literal, @errorName(err) });
             try self.errors.append(err_msg);
             return err;
         };
@@ -250,7 +301,7 @@ pub const Parser = struct {
         const right = try self.parseExpression(.Prefix);
 
         if (right == null) {
-            const err_msg = try std.fmt.allocPrint(self.internal_alloc, "could not parse right for prefix expression: {s} at {any}", .{ operator, token });
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "could not parse right for prefix expression: {s} at {any}", .{ operator, token });
             try self.errors.append(err_msg);
             return error.PrefixExpressionDoesNotExist;
         }
@@ -263,7 +314,33 @@ pub const Parser = struct {
             },
         };
     }
+
+    fn parseInfixExpression(self: *Parser, left: *Expression) !Expression {
+        const token = self.cur_token;
+        const operator = self.cur_token.literal;
+
+        const precedence = self.curPrecedence();
+        self.nextToken();
+
+        const parsed_right = try self.parseExpression(precedence);
+        if (parsed_right == null) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "could not parse right for prefix expression: {s} at {any}", .{ operator, token });
+            try self.errors.append(err_msg);
+            return error.InfixExpressionDoesNotExist;
+        }
+
+        return Expression{
+            .infix_expr = .{
+                .token = token,
+                .operator = operator,
+                .left = left,
+                .right = &parsed_right.?,
+            },
+        };
+    }
 };
+
+// ------------- Testing ---------------
 
 pub fn expectParsedEqStatements(input: []const u8, expected_statements: []const Statement) !void {
     const lexer = Lexer.init(input);
@@ -360,6 +437,9 @@ fn expectExpressionEq(expected: Expression, actual: Expression) !void {
         .prefix_expr => |prefix_expr| {
             try expectPrefixExpressionEq(prefix_expr, actual.prefix_expr);
         },
+        .infix_expr => |infix_expr| {
+            try expectInfixExpressionEq(infix_expr, actual.infix_expr);
+        },
     }
 }
 
@@ -380,6 +460,41 @@ fn expectPrefixExpressionEq(expected: PrefixExpression, actual: PrefixExpression
     try testing.expectEqualStrings(expected.token.literal, actual.token.literal);
     try testing.expectEqualStrings(expected.operator, actual.operator);
     try expectExpressionEq(expected.right.*, actual.right.*);
+}
+
+fn expectInfixExpressionEq(expected: InfixExpression, actual: InfixExpression) anyerror!void {
+    try testing.expectEqual(expected.token.type, actual.token.type);
+    try testing.expectEqualStrings(expected.token.literal, actual.token.literal);
+    try testing.expectEqualStrings(expected.operator, actual.operator);
+    try expectExpressionEq(expected.right.*, actual.right.*);
+    try expectExpressionEq(expected.left.*, actual.left.*);
+}
+
+const five_token = Token{
+    .type = .{ .Literal = .Int },
+    .literal = "5",
+};
+
+const five_expr = Expression{
+    .int_literal_expr = .{
+        .token = five_token,
+        .value = 5,
+    },
+};
+fn gen_infix_statement(operator: []const u8) Statement {
+    return .{
+        .expression = .{
+            .token = five_token,
+            .expr = .{
+                .infix_expr = .{
+                    .token = five_token,
+                    .left = &five_expr,
+                    .operator = operator,
+                    .right = &five_expr,
+                },
+            },
+        },
+    };
 }
 
 test "DeclareAssign Statement" {
@@ -485,9 +600,12 @@ test "Integer Literal Expression" {
                 },
                 .expr = .{
                     .int_literal_expr = .{
-                        .token = .{ .type = .{
-                            .Literal = .Int,
-                        }, .literal = "5" },
+                        .token = .{
+                            .type = .{
+                                .Literal = .Int,
+                            },
+                            .literal = "5",
+                        },
                         .value = 5,
                     },
                 },
@@ -562,6 +680,32 @@ test "Prefix Expression" {
                 },
             },
         },
+    };
+
+    try expectParsedEqStatements(input, &tests);
+}
+
+test "Infix Expression" {
+    const input =
+        \\5 + 5;
+        \\5 - 5;
+        \\5 * 5;
+        \\5 / 5;
+        \\5 > 5;
+        \\5 < 5;
+        \\5 == 5;
+        \\5 != 5;
+    ;
+
+    const tests = [_]Statement{
+        gen_infix_statement("+"),
+        gen_infix_statement("-"),
+        gen_infix_statement("*"),
+        gen_infix_statement("/"),
+        gen_infix_statement(">"),
+        gen_infix_statement("<"),
+        gen_infix_statement("=="),
+        gen_infix_statement("!="),
     };
 
     try expectParsedEqStatements(input, &tests);

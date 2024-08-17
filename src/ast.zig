@@ -64,6 +64,7 @@ pub const Expression = union(enum) {
     ident_expr: IdentifierExpression,
     int_literal_expr: IntLiteralExpression,
     prefix_expr: PrefixExpression,
+    infix_expr: InfixExpression,
 
     pub fn tokenLiteral(self: Expression) []const u8 {
         switch (self) {
@@ -75,6 +76,7 @@ pub const Expression = union(enum) {
         switch (self) {
             inline .int_literal_expr => |case| return try case.toString(alloc),
             inline .prefix_expr => |case| return try case.toString(alloc),
+            inline .infix_expr => |case| return try case.toString(alloc),
             inline else => |case| return case.toString(),
         }
     }
@@ -169,8 +171,10 @@ pub const IntLiteralExpression = struct {
     }
 };
 
+/// <prefix operator> <expression> -> !5 or -10
 pub const PrefixExpression = struct {
-    token: Token, // eg. !
+    /// first prefix_expr token. Eg !
+    token: Token,
     operator: []const u8,
     right: *const Expression,
 
@@ -183,6 +187,28 @@ pub const PrefixExpression = struct {
         defer alloc.free(right_str);
 
         return try std.fmt.allocPrint(alloc, "({s}{s})", .{ self.operator, right_str });
+    }
+};
+
+/// <expression> <infix operator> <expression> -> 5 - 5; or 5 * 10;
+pub const InfixExpression = struct {
+    /// first infix expression token, eg 5
+    token: Token,
+    left: *const Expression,
+    operator: []const u8,
+    right: *const Expression,
+
+    pub fn tokenLiteral(self: InfixExpression) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn toString(self: InfixExpression, alloc: std.mem.Allocator) anyerror![]const u8 {
+        const left_str = try self.left.toString(alloc);
+        const right_str = try self.right.toString(alloc);
+        defer alloc.free(left_str);
+        defer alloc.free(right_str);
+
+        return try std.fmt.allocPrint(alloc, "({s} {s} {s})", .{ left_str, self.operator, right_str });
     }
 };
 
