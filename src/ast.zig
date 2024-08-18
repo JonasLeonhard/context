@@ -31,38 +31,38 @@ pub const Tree = struct {
         const node = self.nodes.items[node_index];
 
         try writer.writeByteNTimes(' ', indent * 2);
-        try writer.print("{s}\n", .{@tagName(node.tag)});
+        try writer.print("{s}\n", .{@tagName(node)});
 
-        switch (node.tag) {
+        switch (node) {
             .root => {
-                for (node.data.root.statements) |stmt| {
+                for (node.root.statements) |stmt| {
                     try printNode(self, stmt, indent + 1, writer);
                 }
             },
             .function_declaration => {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("name: {s}\n", .{node.data.function_declaration.name});
-                try printNode(self, node.data.function_declaration.body, indent + 1, writer);
+                try writer.print("name: {s}\n", .{node.function_declaration.name});
+                try printNode(self, node.function_declaration.body, indent + 1, writer);
             },
             .declare_assign => {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("name: {s}\n", .{node.data.declare_assign.name});
-                try printNode(self, node.data.declare_assign.expr, indent + 1, writer);
+                try writer.print("name: {s}\n", .{node.declare_assign.name});
+                try printNode(self, node.declare_assign.expr, indent + 1, writer);
             },
             .binary_expression => {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("op: {s}\n", .{@tagName(node.data.binary_expression.op)});
-                try printNode(self, node.data.binary_expression.left, indent + 1, writer);
-                try printNode(self, node.data.binary_expression.right, indent + 1, writer);
+                try writer.print("op: {s}\n", .{@tagName(node.binary_expression.op)});
+                try printNode(self, node.binary_expression.left, indent + 1, writer);
+                try printNode(self, node.binary_expression.right, indent + 1, writer);
             },
             .unary_expression => {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("op: {s}\n", .{@tagName(node.data.unary_expression.op)});
-                try printNode(self, node.data.unary_expression.operand, indent + 1, writer);
+                try writer.print("op: {s}\n", .{@tagName(node.unary_expression.op)});
+                try printNode(self, node.unary_expression.operand, indent + 1, writer);
             },
             .literal => {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                switch (node.data.literal) {
+                switch (node.literal) {
                     .int => |value| try writer.print("int: {d}\n", .{value}),
                     .float => |value| try writer.print("float: {d}\n", .{value}),
                     .string => |value| try writer.print("string: {s}\n", .{value}),
@@ -74,51 +74,47 @@ pub const Tree = struct {
 
 pub const NodeIndex = u32;
 
-pub const Node = struct {
-    tag: Tag,
-    data: Data,
+pub const Node = union(enum) {
+    root: Root,
+    function_declaration: FunctionDeclaration,
+    declare_assign: DeclareAssign,
+    binary_expression: BinaryExpression,
+    unary_expression: UnaryExpression,
+    literal: Literal,
 
-    pub const Tag = enum {
-        root,
-        function_declaration,
-        declare_assign,
-        binary_expression,
-        unary_expression,
-        literal,
+    pub const Root = struct {
+        statements: []const NodeIndex,
     };
 
-    pub const Data = union {
-        root: struct {
-            statements: []const NodeIndex,
-        },
-        function_declaration: struct {
-            name: []const u8,
-            body: NodeIndex,
-        },
-        declare_assign: struct {
-            name: []const u8,
-            expr: NodeIndex,
-        },
-        binary_expression: struct {
-            left: NodeIndex,
-            right: NodeIndex,
-            op: BinaryOp,
-        },
-        unary_expression: struct {
-            operand: NodeIndex,
-            op: UnaryOp,
-        },
-        literal: Literal,
+    pub const FunctionDeclaration = struct {
+        name: []const u8,
+        body: NodeIndex,
     };
 
-    pub const BinaryOp = enum { add, subtract, multiply, divide };
-    pub const UnaryOp = enum { negate, not };
+    pub const DeclareAssign = struct {
+        name: []const u8,
+        expr: NodeIndex,
+    };
+
+    pub const BinaryExpression = struct {
+        left: NodeIndex,
+        right: NodeIndex,
+        op: BinaryOp,
+    };
+
+    pub const UnaryExpression = struct {
+        operand: NodeIndex,
+        op: UnaryOp,
+    };
 
     pub const Literal = union(enum) {
         int: i64,
         float: f64,
         string: []const u8,
     };
+
+    pub const BinaryOp = enum { add, subtract, multiply, divide };
+    pub const UnaryOp = enum { negate, not };
 };
 
 test "AstTree" {
@@ -126,29 +122,26 @@ test "AstTree" {
     defer tree.deinit();
 
     // Create a simple AST: x := 5 + 3;
-    const literal_5 = try tree.addNode(.{ .tag = .literal, .data = .{ .literal = .{ .int = 5 } } });
-    const literal_3 = try tree.addNode(.{ .tag = .literal, .data = .{ .literal = .{ .int = 3 } } });
+    const literal_5 = try tree.addNode(.{ .literal = .{ .int = 5 } });
+    const literal_3 = try tree.addNode(.{ .literal = .{ .int = 3 } });
 
     const binary_expr = try tree.addNode(.{
-        .tag = .binary_expression,
-        .data = .{ .binary_expression = .{
+        .binary_expression = .{
             .left = literal_5,
             .right = literal_3,
             .op = .add,
-        } },
+        },
     });
 
     const declare_assign = try tree.addNode(.{
-        .tag = .declare_assign,
-        .data = .{ .declare_assign = .{
+        .declare_assign = .{
             .name = "x",
             .expr = binary_expr,
-        } },
+        },
     });
 
     const root = try tree.addNode(.{
-        .tag = .root,
-        .data = .{ .root = .{ .statements = &.{declare_assign} } },
+        .root = .{ .statements = &.{declare_assign} },
     });
 
     // Print the tree structure
