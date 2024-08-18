@@ -1,5 +1,10 @@
 const std = @import("std");
 
+pub const Location = struct {
+    start: usize,
+    end: usize,
+};
+
 pub const TokenType = union(enum) {
     // -------- Special --------
     /// Token not known to the compiler
@@ -217,6 +222,8 @@ const ident_map = std.StaticStringMap(TokenType).initComptime(.{
 pub const Token = struct {
     type: TokenType,
     literal: []const u8,
+    location: ?Location,
+
     pub fn lookupIdent(ident: []const u8) TokenType {
         const possible_type = ident_map.get(ident);
         if (possible_type) |actual_type| {

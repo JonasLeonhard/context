@@ -1,244 +1,174 @@
-const Token = @import("token.zig").Token;
 const std = @import("std");
-const ArrayList = std.ArrayList;
-const testing = std.testing;
 
-pub const Program = struct {
-    statements: ArrayList(Statement),
+pub const Tree = struct {
+    // TODO: std.MultiArrayList(Node).Slice is used in zig...
+    nodes: std.ArrayList(Node),
 
-    pub fn init(alloc: std.mem.Allocator) Program {
+    pub fn init(allocator: std.mem.Allocator) Tree {
         return .{
-            .statements = std.ArrayList(Statement).init(alloc),
+            .nodes = std.ArrayList(Node).init(allocator),
         };
     }
 
-    pub fn deinit(self: *Program) void {
-        self.statements.deinit();
+    pub fn deinit(self: *Tree) void {
+        self.nodes.deinit();
     }
 
-    pub fn tokenLiteral(self: Program) []u8 {
-        if (self.statements.len > 0) {
-            return self.statements[0].tokenLiteral();
-        } else {
-            return "";
-        }
+    pub fn addNode(self: *Tree, node: Node) !NodeIndex {
+        try self.nodes.append(node);
+        return @intCast(self.nodes.items.len - 1);
     }
 
-    /// Returns a string representation of the program. Requires alloc.free of the return value!
-    /// this doesnt use the stored token literals, but instead uses the parsed Expression and Statement values.
-    pub fn toString(self: Program, alloc: std.mem.Allocator) ![]const u8 {
-        var buffer = std.ArrayList(u8).init(alloc);
-        defer buffer.deinit();
+    pub fn toString(self: *const Tree, alloc: std.mem.Allocator, node_index: NodeIndex) ![]u8 {
+        var list = std.ArrayList(u8).init(alloc);
+        errdefer list.deinit();
 
-        for (self.statements.items) |statement| {
-            const statement_str = try statement.toString(alloc);
-            defer alloc.free(statement_str);
-            try buffer.appendSlice(statement_str);
-        }
-
-        return buffer.toOwnedSlice();
-    }
-};
-
-// _____________________________________________
-
-pub const Statement = union(enum) {
-    declare_assign: DeclareAssignStatement,
-    return_: ReturnStatement,
-    expression: ExpressionStatement,
-
-    pub fn tokenLiteral(self: Statement) []const u8 {
-        switch (self) {
-            inline else => |case| return case.tokenLiteral(),
-        }
+        try self.printNode(node_index, 0, list.writer());
+        return list.toOwnedSlice();
     }
 
-    pub fn toString(self: Statement, alloc: std.mem.Allocator) ![]const u8 {
-        switch (self) {
-            inline else => |case| return try case.toString(alloc),
-        }
-    }
-};
+    fn printNode(self: *const Tree, node_index: NodeIndex, indent: u32, writer: anytype) !void {
+        const node = self.nodes.items[node_index];
 
-pub const Expression = union(enum) {
-    ident_expr: IdentifierExpression,
-    int_literal_expr: IntLiteralExpression,
-    prefix_expr: PrefixExpression,
-    infix_expr: InfixExpression,
+        try writer.writeByteNTimes(' ', indent * 2);
+        try writer.print("{s}\n", .{@tagName(node.tag)});
 
-    pub fn tokenLiteral(self: Expression) []const u8 {
-        switch (self) {
-            inline else => |case| return case.tokenLiteral(),
-        }
-    }
-
-    pub fn toString(self: Expression, alloc: std.mem.Allocator) ![]const u8 {
-        switch (self) {
-            inline .int_literal_expr => |case| return try case.toString(alloc),
-            inline .prefix_expr => |case| return try case.toString(alloc),
-            inline .infix_expr => |case| return try case.toString(alloc),
-            inline else => |case| return case.toString(),
-        }
-    }
-};
-
-// _____________________________________________
-
-/// <ident> := <expr>; // Example: foo := 5;
-pub const DeclareAssignStatement = struct {
-    token: Token,
-    ident_expr: IdentifierExpression,
-    expr: ?Expression,
-
-    pub fn tokenLiteral(self: DeclareAssignStatement) []const u8 {
-        return self.token.literal;
-    }
-
-    pub fn toString(self: DeclareAssignStatement, alloc: std.mem.Allocator) ![]const u8 {
-        var expr_str: []const u8 = "";
-        if (self.expr) |expression| {
-            expr_str = try expression.toString(alloc);
-        }
-        return try std.fmt.allocPrint(alloc, "{s} {s} {s};", .{ self.ident_expr.toString(), self.token.literal, expr_str });
-    }
-};
-
-/// return <expression>; // Example: return 5;
-pub const ReturnStatement = struct {
-    token: Token,
-    expr: ?Expression,
-
-    pub fn tokenLiteral(self: ReturnStatement) []const u8 {
-        return self.token.literal;
-    }
-
-    pub fn toString(self: ReturnStatement, alloc: std.mem.Allocator) ![]const u8 {
-        var expr_str: []const u8 = "";
-        if (self.expr) |expression| {
-            expr_str = try expression.toString(alloc);
-        }
-        return try std.fmt.allocPrint(alloc, "{s} {s};", .{ self.tokenLiteral(), expr_str });
-    }
-};
-
-/// <expression>; // Example: x + 10;
-pub const ExpressionStatement = struct {
-    /// the first token of the expression
-    token: Token,
-    expr: ?Expression,
-
-    pub fn tokenLiteral(self: ExpressionStatement) []const u8 {
-        return self.token.literal;
-    }
-
-    pub fn toString(self: ExpressionStatement, alloc: std.mem.Allocator) ![]const u8 {
-        var expr_str: []const u8 = "";
-        if (self.expr) |expression| {
-            expr_str = try expression.toString(alloc);
-            defer alloc.free(expr_str);
-        }
-        return try std.fmt.allocPrint(alloc, "{s};", .{expr_str});
-    }
-};
-
-// _____________________________________________
-
-/// <ident> // Example foo
-pub const IdentifierExpression = struct {
-    token: Token,
-    value: []const u8,
-
-    pub fn tokenLiteral(self: IdentifierExpression) []const u8 {
-        return self.token.literal;
-    }
-
-    pub fn toString(self: IdentifierExpression) []const u8 {
-        return self.value;
-    }
-};
-
-/// <INT>;
-pub const IntLiteralExpression = struct {
-    token: Token,
-    value: i32,
-
-    pub fn tokenLiteral(self: IntLiteralExpression) []const u8 {
-        return self.token.literal;
-    }
-
-    pub fn toString(self: IntLiteralExpression, alloc: std.mem.Allocator) ![]const u8 {
-        return try std.fmt.allocPrint(alloc, "{d}", .{self.value});
-    }
-};
-
-/// <prefix operator> <expression> -> !5 or -10
-pub const PrefixExpression = struct {
-    /// first prefix_expr token. Eg !
-    token: Token,
-    operator: []const u8,
-    right: *const Expression,
-
-    pub fn tokenLiteral(self: PrefixExpression) []const u8 {
-        return self.token.literal;
-    }
-
-    pub fn toString(self: PrefixExpression, alloc: std.mem.Allocator) anyerror![]const u8 {
-        const right_str = try self.right.toString(alloc);
-        defer alloc.free(right_str);
-
-        return try std.fmt.allocPrint(alloc, "({s}{s})", .{ self.operator, right_str });
-    }
-};
-
-/// <expression> <infix operator> <expression> -> 5 - 5; or 5 * 10;
-pub const InfixExpression = struct {
-    /// first infix expression token, eg 5
-    token: Token,
-    left: *const Expression,
-    operator: []const u8,
-    right: *const Expression,
-
-    pub fn tokenLiteral(self: InfixExpression) []const u8 {
-        return self.token.literal;
-    }
-
-    pub fn toString(self: InfixExpression, alloc: std.mem.Allocator) anyerror![]const u8 {
-        const left_str = try self.left.toString(alloc);
-        const right_str = try self.right.toString(alloc);
-        defer alloc.free(left_str);
-        defer alloc.free(right_str);
-
-        return try std.fmt.allocPrint(alloc, "({s} {s} {s})", .{ left_str, self.operator, right_str });
-    }
-};
-
-test "Program toString()" {
-    var program = Program.init(testing.allocator);
-    defer program.deinit();
-
-    const declare_assign_statement = Statement{
-        .declare_assign = .{
-            // foo
-            .ident_expr = .{
-                .token = .{ .type = .Ident, .literal = "foo" },
-                .value = "foo",
+        switch (node.tag) {
+            .root => {
+                for (node.data.root.statements) |stmt| {
+                    try printNode(self, stmt, indent + 1, writer);
+                }
             },
-            // :=
-            .token = .{
-                .type = .DeclareAssign,
-                .literal = ":=",
+            .function_declaration => {
+                try writer.writeByteNTimes(' ', (indent + 1) * 2);
+                try writer.print("name: {s}\n", .{node.data.function_declaration.name});
+                try printNode(self, node.data.function_declaration.body, indent + 1, writer);
             },
-            // bar
-            .expr = .{ .ident_expr = .{
-                .token = .{ .type = .Ident, .literal = "bar" },
-                .value = "bar",
-            } },
-        },
+            .declare_assign => {
+                try writer.writeByteNTimes(' ', (indent + 1) * 2);
+                try writer.print("name: {s}\n", .{node.data.declare_assign.name});
+                try printNode(self, node.data.declare_assign.expr, indent + 1, writer);
+            },
+            .binary_expression => {
+                try writer.writeByteNTimes(' ', (indent + 1) * 2);
+                try writer.print("op: {s}\n", .{@tagName(node.data.binary_expression.op)});
+                try printNode(self, node.data.binary_expression.left, indent + 1, writer);
+                try printNode(self, node.data.binary_expression.right, indent + 1, writer);
+            },
+            .unary_expression => {
+                try writer.writeByteNTimes(' ', (indent + 1) * 2);
+                try writer.print("op: {s}\n", .{@tagName(node.data.unary_expression.op)});
+                try printNode(self, node.data.unary_expression.operand, indent + 1, writer);
+            },
+            .literal => {
+                try writer.writeByteNTimes(' ', (indent + 1) * 2);
+                switch (node.data.literal) {
+                    .int => |value| try writer.print("int: {d}\n", .{value}),
+                    .float => |value| try writer.print("float: {d}\n", .{value}),
+                    .string => |value| try writer.print("string: {s}\n", .{value}),
+                }
+            },
+        }
+    }
+};
+
+pub const NodeIndex = u32;
+
+pub const Node = struct {
+    tag: Tag,
+    data: Data,
+
+    pub const Tag = enum {
+        root,
+        function_declaration,
+        declare_assign,
+        binary_expression,
+        unary_expression,
+        literal,
     };
-    try program.statements.append(declare_assign_statement);
 
-    const program_str = try program.toString(testing.allocator);
-    defer testing.allocator.free(program_str);
+    pub const Data = union {
+        root: struct {
+            statements: []const NodeIndex,
+        },
+        function_declaration: struct {
+            name: []const u8,
+            body: NodeIndex,
+        },
+        declare_assign: struct {
+            name: []const u8,
+            expr: NodeIndex,
+        },
+        binary_expression: struct {
+            left: NodeIndex,
+            right: NodeIndex,
+            op: BinaryOp,
+        },
+        unary_expression: struct {
+            operand: NodeIndex,
+            op: UnaryOp,
+        },
+        literal: Literal,
+    };
 
-    try testing.expectEqualStrings(program_str, "foo := bar;");
+    pub const BinaryOp = enum { add, subtract, multiply, divide };
+    pub const UnaryOp = enum { negate, not };
+
+    pub const Literal = union(enum) {
+        int: i64,
+        float: f64,
+        string: []const u8,
+    };
+};
+
+test "AstTree" {
+    var tree = Tree.init(std.testing.allocator);
+    defer tree.deinit();
+
+    // Create a simple AST: x := 5 + 3;
+    const literal_5 = try tree.addNode(.{ .tag = .literal, .data = .{ .literal = .{ .int = 5 } } });
+    const literal_3 = try tree.addNode(.{ .tag = .literal, .data = .{ .literal = .{ .int = 3 } } });
+
+    const binary_expr = try tree.addNode(.{
+        .tag = .binary_expression,
+        .data = .{ .binary_expression = .{
+            .left = literal_5,
+            .right = literal_3,
+            .op = .add,
+        } },
+    });
+
+    const declare_assign = try tree.addNode(.{
+        .tag = .declare_assign,
+        .data = .{ .declare_assign = .{
+            .name = "x",
+            .expr = binary_expr,
+        } },
+    });
+
+    const root = try tree.addNode(.{
+        .tag = .root,
+        .data = .{ .root = .{ .statements = &.{declare_assign} } },
+    });
+
+    // Print the tree structure
+    const tree_string = try tree.toString(std.testing.allocator, root);
+    defer std.testing.allocator.free(tree_string);
+
+    // std.debug.print("tree_string {s}", .{tree_string});
+
+    const expected_output =
+        \\root
+        \\  declare_assign
+        \\    name: x
+        \\    binary_expression
+        \\      op: add
+        \\      literal
+        \\        int: 5
+        \\      literal
+        \\        int: 3
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected_output, tree_string);
 }

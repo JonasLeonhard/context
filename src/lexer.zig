@@ -27,7 +27,7 @@ pub const Lexer = struct {
     }
 
     pub fn nextToken(self: *Lexer) Token {
-        var tok = Token{ .type = TokenType.Unknown, .literal = &[_]u8{self.char} };
+        var tok = Token{ .type = TokenType.Unknown, .literal = &[_]u8{self.char}, .location = null };
 
         self.skipWhiteSpace();
 
