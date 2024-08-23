@@ -1,22 +1,23 @@
 const std = @import("std");
 
 pub const Tree = struct {
-    // TODO: std.MultiArrayList(Node).Slice is used in zig...
-    nodes: std.ArrayList(Node),
+    alloc: std.mem.Allocator,
+    nodes: std.MultiArrayList(Node),
 
     pub fn init(allocator: std.mem.Allocator) Tree {
         return .{
-            .nodes = std.ArrayList(Node).init(allocator),
+            .alloc = allocator,
+            .nodes = std.MultiArrayList(Node){},
         };
     }
 
     pub fn deinit(self: *Tree) void {
-        self.nodes.deinit();
+        self.nodes.deinit(self.alloc);
     }
 
     pub fn addNode(self: *Tree, node: Node) !NodeIndex {
-        try self.nodes.append(node);
-        return @intCast(self.nodes.items.len - 1);
+        try self.nodes.append(self.alloc, node);
+        return @intCast(self.nodes.len - 1);
     }
 
     pub fn toString(self: *const Tree, alloc: std.mem.Allocator, node_index: NodeIndex) ![]u8 {
@@ -28,7 +29,7 @@ pub const Tree = struct {
     }
 
     fn printNode(self: *const Tree, node_index: NodeIndex, indent: u32, writer: anytype) !void {
-        const node = self.nodes.items[node_index];
+        const node = self.nodes.get(node_index);
 
         try writer.writeByteNTimes(' ', indent * 2);
         try writer.print("{s}\n", .{@tagName(node)});
