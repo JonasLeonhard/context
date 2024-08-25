@@ -1,35 +1,55 @@
 const std = @import("std");
+const token = @import("token.zig");
+const Token = token.Token;
+const ArenaAllocator = std.heap.ArenaAllocator;
+const ArrayList = std.ArrayList;
 
 pub const Tree = struct {
-    alloc: std.mem.Allocator,
-    nodes: std.MultiArrayList(Node),
+    arena: ArenaAllocator,
+    /// The root node is expected to be the last node added to the nodes array list! => tree.nodes.len - 1
+    nodes: ArrayList(Node), // @Performance: zigs compiler uses a MultiArrayList(Node) here
+    root: ?NodeIndex,
 
-    pub fn init(allocator: std.mem.Allocator) Tree {
+    pub fn init(alloc: std.mem.Allocator) Tree {
+        const arena = ArenaAllocator.init(alloc);
+
         return .{
-            .alloc = allocator,
-            .nodes = std.MultiArrayList(Node){},
+            .arena = arena,
+            .nodes = std.ArrayList(Node).init(alloc),
+            .root = null,
         };
     }
 
     pub fn deinit(self: *Tree) void {
-        self.nodes.deinit(self.alloc);
+        self.nodes.deinit();
+        self.arena.deinit();
     }
 
     pub fn addNode(self: *Tree, node: Node) !NodeIndex {
-        try self.nodes.append(self.alloc, node);
-        return @intCast(self.nodes.len - 1);
+        try self.nodes.append(node);
+
+        const node_index: NodeIndex = @intCast(self.nodes.items.len - 1);
+
+        if (node == .root) {
+            self.root = node_index;
+        }
+
+        return node_index;
     }
 
-    pub fn toString(self: *const Tree, alloc: std.mem.Allocator, node_index: NodeIndex) ![]u8 {
+    pub fn toString(self: *const Tree, alloc: std.mem.Allocator) ![]u8 {
         var list = std.ArrayList(u8).init(alloc);
         errdefer list.deinit();
 
-        try self.printNode(node_index, 0, list.writer());
+        if (self.root) |root| {
+            try self.printNode(root, 0, list.writer());
+        }
+
         return list.toOwnedSlice();
     }
 
     fn printNode(self: *const Tree, node_index: NodeIndex, indent: u32, writer: anytype) !void {
-        const node = self.nodes.get(node_index);
+        const node = self.nodes.items[node_index];
 
         try writer.writeByteNTimes(' ', indent * 2);
         try writer.print("{s}\n", .{@tagName(node)});
@@ -37,33 +57,45 @@ pub const Tree = struct {
         switch (node) {
             .root => {
                 for (node.root.statements) |stmt| {
-                    try printNode(self, stmt, indent + 1, writer);
+                    try self.printNode(stmt, indent + 1, writer);
                 }
             },
-            .function_declaration => {
-                try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("name: {s}\n", .{node.function_declaration.name});
-                try printNode(self, node.function_declaration.body, indent + 1, writer);
+            // ---------- Statements ---------
+            .return_ => {
+                if (node.return_.expr) |expr| {
+                    try self.printNode(expr, indent + 1, writer);
+                }
             },
             .declare_assign => {
-                try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("name: {s}\n", .{node.declare_assign.name});
-                try printNode(self, node.declare_assign.expr, indent + 1, writer);
+                try self.printNode(node.declare_assign.ident, indent + 1, writer);
+                if (node.declare_assign.expr) |expr| {
+                    try self.printNode(expr, indent + 1, writer);
+                }
             },
-            .binary_expression => {
-                try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("op: {s}\n", .{@tagName(node.binary_expression.op)});
-                try printNode(self, node.binary_expression.left, indent + 1, writer);
-                try printNode(self, node.binary_expression.right, indent + 1, writer);
+            .expression => {
+                if (node.expression.expr) |expr| {
+                    try self.printNode(expr, indent + 1, writer);
+                }
             },
-            .unary_expression => {
+            // ---------- Expressions --------
+            .ident => {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("op: {s}\n", .{@tagName(node.unary_expression.op)});
-                try printNode(self, node.unary_expression.operand, indent + 1, writer);
+                try writer.print("ident: {s}\n", .{node.ident.value});
+            },
+            .infix => {
+                try writer.writeByteNTimes(' ', (indent + 1) * 2);
+                try writer.print("operator: {s}\n", .{node.infix.operator});
+                try self.printNode(node.infix.left, indent + 1, writer);
+                try self.printNode(node.infix.right, indent + 1, writer);
+            },
+            .prefix => {
+                try writer.writeByteNTimes(' ', (indent + 1) * 2);
+                try writer.print("op: {s}\n", .{node.prefix.operator});
+                try self.printNode(node.prefix.right, indent + 1, writer);
             },
             .literal => {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                switch (node.literal) {
+                switch (node.literal.value) {
                     .int => |value| try writer.print("int: {d}\n", .{value}),
                     .float => |value| try writer.print("float: {d}\n", .{value}),
                     .string => |value| try writer.print("string: {s}\n", .{value}),
@@ -77,45 +109,68 @@ pub const NodeIndex = u32;
 
 pub const Node = union(enum) {
     root: Root,
-    function_declaration: FunctionDeclaration,
+
+    // ---------- Statements ---------
+    return_: Return,
     declare_assign: DeclareAssign,
-    binary_expression: BinaryExpression,
-    unary_expression: UnaryExpression,
+    expression: Expression,
+
+    // ---------- Expressions --------
+    ident: Ident,
+    infix: Infix,
+    prefix: Prefix,
     literal: Literal,
 
     pub const Root = struct {
         statements: []const NodeIndex,
     };
 
-    pub const FunctionDeclaration = struct {
-        name: []const u8,
-        body: NodeIndex,
+    // ---------- Statements ---------
+    pub const Return = struct {
+        token: Token,
+        expr: ?NodeIndex,
     };
 
     pub const DeclareAssign = struct {
-        name: []const u8,
-        expr: NodeIndex,
+        token: Token,
+        ident: NodeIndex,
+        expr: ?NodeIndex,
     };
 
-    pub const BinaryExpression = struct {
+    pub const Expression = struct {
+        token: Token,
+        expr: ?NodeIndex,
+    };
+
+    // ---------- Expressions --------
+    pub const Ident = struct {
+        token: Token,
+        value: []const u8,
+    };
+
+    pub const Infix = struct {
+        token: Token,
         left: NodeIndex,
+        operator: []const u8,
         right: NodeIndex,
-        op: BinaryOp,
     };
 
-    pub const UnaryExpression = struct {
-        operand: NodeIndex,
-        op: UnaryOp,
+    pub const Prefix = struct {
+        token: Token,
+        operator: []const u8,
+        right: NodeIndex,
     };
 
-    pub const Literal = union(enum) {
+    pub const Literal = struct {
+        token: Token,
+        value: LiteralValue,
+    };
+
+    const LiteralValue = union(enum) {
         int: i64,
         float: f64,
         string: []const u8,
     };
-
-    pub const BinaryOp = enum { add, subtract, multiply, divide };
-    pub const UnaryOp = enum { negate, not };
 };
 
 test "AstTree" {
@@ -123,30 +178,81 @@ test "AstTree" {
     defer tree.deinit();
 
     // Create a simple AST: x := 5 + 3;
-    const literal_5 = try tree.addNode(.{ .literal = .{ .int = 5 } });
-    const literal_3 = try tree.addNode(.{ .literal = .{ .int = 3 } });
+    const literal_5 = try tree.addNode(
+        .{
+            .literal = .{
+                .token = Token{
+                    .type = .{
+                        .Literal = .Int,
+                    },
+                    .literal = "5",
+                    .location = null,
+                },
+                .value = .{
+                    .int = 5,
+                },
+            },
+        },
+    );
+    const literal_3 = try tree.addNode(
+        .{
+            .literal = .{
+                .token = Token{
+                    .type = .{
+                        .Literal = .Int,
+                    },
+                    .literal = "3",
+                    .location = null,
+                },
+                .value = .{
+                    .int = 3,
+                },
+            },
+        },
+    );
 
-    const binary_expr = try tree.addNode(.{
-        .binary_expression = .{
+    const infix = try tree.addNode(.{
+        .infix = .{
+            .token = Token{
+                .type = .Plus,
+                .literal = "+",
+                .location = null,
+            },
             .left = literal_5,
+            .operator = "+",
             .right = literal_3,
-            .op = .add,
+        },
+    });
+
+    const ident = try tree.addNode(.{
+        .ident = .{
+            .token = Token{
+                .type = .Ident,
+                .literal = "x",
+                .location = null,
+            },
+            .value = "x",
         },
     });
 
     const declare_assign = try tree.addNode(.{
         .declare_assign = .{
-            .name = "x",
-            .expr = binary_expr,
+            .token = Token{
+                .type = .Ident,
+                .literal = "x",
+                .location = null,
+            },
+            .ident = ident,
+            .expr = infix,
         },
     });
 
-    const root = try tree.addNode(.{
+    _ = try tree.addNode(.{
         .root = .{ .statements = &.{declare_assign} },
     });
 
     // Print the tree structure
-    const tree_string = try tree.toString(std.testing.allocator, root);
+    const tree_string = try tree.toString(std.testing.allocator);
     defer std.testing.allocator.free(tree_string);
 
     // std.debug.print("tree_string {s}", .{tree_string});
@@ -154,9 +260,10 @@ test "AstTree" {
     const expected_output =
         \\root
         \\  declare_assign
-        \\    name: x
-        \\    binary_expression
-        \\      op: add
+        \\    ident
+        \\      ident: x
+        \\    infix
+        \\      operator: +
         \\      literal
         \\        int: 5
         \\      literal
