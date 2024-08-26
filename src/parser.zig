@@ -69,7 +69,9 @@ pub const Parser = struct {
         try prefix_parse_fn_map.put(.Minus, parsePrefixExpression);
         try prefix_parse_fn_map.put(.True, parseBooleanLiteral);
         try prefix_parse_fn_map.put(.False, parseBooleanLiteral);
+        try prefix_parse_fn_map.put(.Null, parseNullLiteral);
         try prefix_parse_fn_map.put(.OpenParen, parseGroupedExpression);
+        try prefix_parse_fn_map.put(.If, parseIfExpression);
 
         // registerInfix
         try infix_parse_fn_map.put(.Plus, parseInfixExpression);
@@ -199,7 +201,6 @@ pub const Parser = struct {
     }
 
     fn parseExpressionStatement(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
-        // TODO: missing type...
         const statement = ast_tree.addNode(.{
             .expression = .{
                 .token = self.cur_token,
@@ -228,6 +229,7 @@ pub const Parser = struct {
             try self.errors.append(err);
             return null;
         }
+        const expr = try self.parseExpression(ast_tree, .Lowest);
 
         while (!self.curTokenIs(.Semi)) {
             self.nextToken();
@@ -237,7 +239,7 @@ pub const Parser = struct {
             .declare_assign = .{
                 .token = declare_assign_token,
                 .ident = ident,
-                .expr = null, // TODO
+                .expr = expr,
             },
         });
     }
@@ -326,6 +328,17 @@ pub const Parser = struct {
         });
     }
 
+    fn parseNullLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+        assert(self.cur_token.type == .Null);
+
+        return ast_tree.addNode(.{
+            .literal = .{
+                .token = self.cur_token,
+                .value = .null,
+            },
+        });
+    }
+
     fn parseGroupedExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
         const start_token = self.cur_token;
 
@@ -334,12 +347,85 @@ pub const Parser = struct {
         const expr = try self.parseExpression(ast_tree, .Lowest);
 
         if (!self.expectPeekAndEat(.CloseParen)) {
-            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any CloseParen ')' for grouped expression starting at: {any}.", .{start_token.type});
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any CloseParen for grouped expression starting at: {any}.", .{start_token.type});
             try self.errors.append(err_msg);
             return error.GroupedExpressionNotClosed;
         }
 
         return expr;
+    }
+
+    fn parseIfExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+        const cur_token = self.cur_token;
+
+        if (!self.expectPeekAndEat(.OpenParen)) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any OpenParen after if expression, found: {any}.", .{cur_token.type});
+            try self.errors.append(err_msg);
+            return error.ParseIfExpressionNotOpened;
+        }
+
+        self.nextToken();
+
+        const condition = try self.parseExpression(ast_tree, .Lowest);
+
+        if (!self.expectPeekAndEat(.CloseParen)) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any CloseParen after if expression, found: {any}.", .{self.cur_token.type});
+            try self.errors.append(err_msg);
+            return error.ParseIfExpressionNotClosed;
+        }
+
+        if (!self.expectPeekAndEat(.OpenBrace)) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any OpenBrace after if expression, found: {any}.", .{self.cur_token.type});
+            try self.errors.append(err_msg);
+            return error.ParseIfExpressionNoBlockOpened;
+        }
+
+        const consequence = try self.parseBlockStatement(ast_tree);
+        var alternative: ?ast.NodeIndex = null;
+
+        if (self.peekTokenIs(.Else)) {
+            self.nextToken();
+
+            if (!self.expectPeekAndEat(.OpenBrace)) {
+                const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any OpenBrace after else expression, found: {any}", .{self.cur_token});
+                try self.errors.append(err_msg);
+                return error.ParseIfExpressionNoBlockOpened;
+            }
+            alternative = try self.parseBlockStatement(ast_tree);
+        }
+
+        return try ast_tree.addNode(.{
+            .if_ = .{
+                .token = cur_token,
+                .condition = condition,
+                .consequence = consequence,
+                .alternative = alternative,
+            },
+        });
+    }
+
+    fn parseBlockStatement(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+        const start_token = self.cur_token;
+
+        self.nextToken();
+
+        var statements = std.ArrayList(ast.NodeIndex).init(ast_tree.arena.allocator());
+
+        while (!self.curTokenIs(.CloseBrace) and !self.curTokenIs(.Eof)) {
+            const statement = try self.parseStatement(ast_tree);
+
+            if (statement) |stmt| {
+                try statements.append(stmt);
+            }
+            self.nextToken();
+        }
+
+        return ast_tree.addNode(.{
+            .block = .{
+                .token = start_token,
+                .statements = try statements.toOwnedSlice(),
+            },
+        });
     }
 
     fn parsePrefixExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
@@ -404,22 +490,22 @@ test "DeclareAssign Statement" {
     var test_tree = ast.Tree.init(testing.allocator);
     defer test_tree.deinit();
 
-    // const literal_5 = try test_tree.addNode(
-    //     .{
-    //         .literal = .{
-    //             .token = Token{
-    //                 .type = .{
-    //                     .Literal = .Int,
-    //                 },
-    //                 .literal = "5",
-    //                 .location = null,
-    //             },
-    //             .value = .{
-    //                 .int = 5,
-    //             },
-    //         },
-    //     },
-    // );
+    const literal_5 = try test_tree.addNode(
+        .{
+            .literal = .{
+                .token = Token{
+                    .type = .{
+                        .Literal = .Int,
+                    },
+                    .literal = "5",
+                    .location = null,
+                },
+                .value = .{
+                    .int = 5,
+                },
+            },
+        },
+    );
 
     const ident_x = try test_tree.addNode(.{
         .ident = .{
@@ -435,7 +521,7 @@ test "DeclareAssign Statement" {
     const declare_assign = try test_tree.addNode(.{
         .declare_assign = .{
             .ident = ident_x,
-            .expr = null, // TODO: literal_5
+            .expr = literal_5, // TODO: literal_5
             .token = Token{
                 .type = .Plus,
                 .literal = "+",
@@ -1325,6 +1411,144 @@ test "Boolean Literal Expression" {
     _ = try test_tree.addNode(.{
         .root = .{
             .statements = &.{ true_expr, false_expr },
+        },
+    });
+
+    const tree_string = try ast_tree.toString(testing.allocator);
+    defer testing.allocator.free(tree_string);
+
+    const test_tree_string = try test_tree.toString(testing.allocator);
+    defer testing.allocator.free(test_tree_string);
+
+    try testing.expectEqualStrings(test_tree_string, tree_string);
+}
+
+test "If-Else Expression" {
+    const input =
+        \\input := if (x < y) { x } else { null };
+    ;
+
+    var ast_tree = try parseTree(testing.allocator, input);
+    defer ast_tree.deinit();
+
+    var test_tree = ast.Tree.init(testing.allocator);
+    defer test_tree.deinit();
+
+    const ident_input = try test_tree.addNode(.{
+        .ident = .{
+            .value = "input",
+            .token = .{ .location = null, .type = .Ident, .literal = "input" },
+        },
+    });
+
+    const ident_x = try test_tree.addNode(.{
+        .ident = .{
+            .value = "x",
+            .token = .{ .location = null, .type = .Ident, .literal = "x" },
+        },
+    });
+
+    const ident_y = try test_tree.addNode(.{
+        .ident = .{
+            .value = "y",
+            .token = .{ .location = null, .type = .Ident, .literal = "y" },
+        },
+    });
+
+    const null_literal = try test_tree.addNode(.{ .literal = .{
+        .token = .{
+            .literal = "null",
+            .type = .Null,
+            .location = null,
+        },
+        .value = .null,
+    } });
+
+    const condition_expr = try test_tree.addNode(.{
+        .infix = .{
+            .token = .{
+                .location = null,
+                .type = .Ident,
+                .literal = "<",
+            },
+            .left = ident_x,
+            .right = ident_y,
+            .operator = "<",
+        },
+    });
+
+    const null_expression = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{
+                .location = null,
+                .type = .Null,
+                .literal = "null",
+            },
+            .expr = null_literal,
+        },
+    });
+
+    const ident_x_expression = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{
+                .location = null,
+                .type = .Ident,
+                .literal = "x",
+            },
+            .expr = ident_x,
+        },
+    });
+
+    const consequence_block = try test_tree.addNode(.{
+        .block = .{
+            .token = .{
+                .literal = "{",
+                .location = null,
+                .type = .OpenBrace,
+            },
+            .statements = &.{ident_x_expression},
+        },
+    });
+
+    const alternative_block = try test_tree.addNode(.{
+        .block = .{
+            .token = .{
+                .literal = "{",
+                .location = null,
+                .type = .OpenBrace,
+            },
+            .statements = &.{null_expression},
+        },
+    });
+
+    const if_ = try test_tree.addNode(.{
+        .if_ = .{
+            .token = .{
+                .literal = "if",
+                .type = .If,
+                .location = null,
+            },
+            .condition = condition_expr,
+            .consequence = consequence_block,
+            .alternative = alternative_block,
+        },
+    });
+
+    const declare_assign = try test_tree.addNode(.{
+        .declare_assign = .{
+            .ident = ident_input,
+            .token = .{
+                .literal = ":=",
+                .type = .DeclareAssign,
+                .location = null,
+            },
+            .expr = if_,
+        },
+    });
+
+    _ = try test_tree.addNode(.{
+        .root = .{
+            .statements = &.{declare_assign},
         },
     });
 

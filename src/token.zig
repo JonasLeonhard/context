@@ -33,6 +33,8 @@ pub const TokenType = union(enum) {
     False,
     /// true
     True,
+    /// null
+    Null,
     /// fn
     Fn,
     /// where
@@ -217,6 +219,7 @@ const ident_map = std.StaticStringMap(TokenType).initComptime(.{
     .{ "while", TokenType.While },
     .{ "break", TokenType.Break },
     .{ "defer", TokenType.Defer },
+    .{ "null", TokenType.Null },
 });
 
 pub const Token = struct {

@@ -443,6 +443,7 @@ test "Next Token" {
         \\while
         \\break
         \\defer
+        \\null
         // ------- One Char Tokens -------
         \\;
         \\,
@@ -517,6 +518,7 @@ test "Next Token" {
         .{ TokenType.While, "while" },
         .{ TokenType.Break, "break" },
         .{ TokenType.Defer, "defer" },
+        .{ TokenType.Null, "null" },
         .{ TokenType.Semi, ";" },
         .{ TokenType.Comma, "," },
         .{ TokenType.Dot, "." },

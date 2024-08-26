@@ -77,6 +77,11 @@ pub const Tree = struct {
                     try self.printNode(expr, indent + 1, writer);
                 }
             },
+            .block => {
+                for (node.block.statements) |stmt| {
+                    try self.printNode(stmt, indent + 1, writer);
+                }
+            },
             // ---------- Expressions --------
             .ident => {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
@@ -98,8 +103,16 @@ pub const Tree = struct {
                 switch (node.literal.value) {
                     .int => |value| try writer.print("int: {d}\n", .{value}),
                     .boolean => |value| try writer.print("boolean: {any}\n", .{value}),
+                    .null => |_| try writer.print("null: null\n", .{}),
                     .float => |value| try writer.print("float: {d}\n", .{value}),
                     .string => |value| try writer.print("string: {s}\n", .{value}),
+                }
+            },
+            .if_ => {
+                try self.printNode(node.if_.condition, indent + 1, writer);
+                try self.printNode(node.if_.consequence, indent + 1, writer);
+                if (node.if_.alternative) |alternative| {
+                    try self.printNode(alternative, indent + 1, writer);
                 }
             },
         }
@@ -115,32 +128,44 @@ pub const Node = union(enum) {
     return_: Return,
     declare_assign: DeclareAssign,
     expression: Expression,
+    block: Block,
 
     // ---------- Expressions --------
     ident: Ident,
     infix: Infix,
     prefix: Prefix,
     literal: Literal,
+    if_: If,
 
     pub const Root = struct {
+        /// Statements
         statements: []const NodeIndex,
     };
 
     // ---------- Statements ---------
     pub const Return = struct {
         token: Token,
+        /// Expression
         expr: ?NodeIndex,
     };
 
     pub const DeclareAssign = struct {
         token: Token,
         ident: NodeIndex,
+        /// Expression
         expr: ?NodeIndex,
     };
 
     pub const Expression = struct {
         token: Token,
+        /// Expression
         expr: ?NodeIndex,
+    };
+
+    pub const Block = struct {
+        token: Token,
+        /// Statements
+        statements: []const NodeIndex,
     };
 
     // ---------- Expressions --------
@@ -151,15 +176,28 @@ pub const Node = union(enum) {
 
     pub const Infix = struct {
         token: Token,
+        /// Expression
         left: NodeIndex,
         operator: []const u8,
+        /// Expression
         right: NodeIndex,
     };
 
     pub const Prefix = struct {
         token: Token,
         operator: []const u8,
+        /// Expression
         right: NodeIndex,
+    };
+
+    pub const If = struct {
+        token: Token,
+        /// Expression
+        condition: NodeIndex,
+        /// BlockStatement
+        consequence: NodeIndex,
+        /// BlockStatement
+        alternative: ?NodeIndex,
     };
 
     pub const Literal = struct {
@@ -170,6 +208,7 @@ pub const Node = union(enum) {
     const LiteralValue = union(enum) {
         int: i64,
         boolean: bool,
+        null,
         float: f64,
         string: []const u8,
     };
