@@ -1423,6 +1423,112 @@ test "Boolean Literal Expression" {
     try testing.expectEqualStrings(test_tree_string, tree_string);
 }
 
+test "If Expression" {
+    const input =
+        \\input := if (x < y) { x };
+    ;
+
+    var ast_tree = try parseTree(testing.allocator, input);
+    defer ast_tree.deinit();
+
+    var test_tree = ast.Tree.init(testing.allocator);
+    defer test_tree.deinit();
+
+    const ident_input = try test_tree.addNode(.{
+        .ident = .{
+            .value = "input",
+            .token = .{ .location = null, .type = .Ident, .literal = "input" },
+        },
+    });
+
+    const ident_x = try test_tree.addNode(.{
+        .ident = .{
+            .value = "x",
+            .token = .{ .location = null, .type = .Ident, .literal = "x" },
+        },
+    });
+
+    const ident_y = try test_tree.addNode(.{
+        .ident = .{
+            .value = "y",
+            .token = .{ .location = null, .type = .Ident, .literal = "y" },
+        },
+    });
+
+    const condition_expr = try test_tree.addNode(.{
+        .infix = .{
+            .token = .{
+                .location = null,
+                .type = .Ident,
+                .literal = "<",
+            },
+            .left = ident_x,
+            .right = ident_y,
+            .operator = "<",
+        },
+    });
+
+    const ident_x_expression = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{
+                .location = null,
+                .type = .Ident,
+                .literal = "x",
+            },
+            .expr = ident_x,
+        },
+    });
+
+    const consequence_block = try test_tree.addNode(.{
+        .block = .{
+            .token = .{
+                .literal = "{",
+                .location = null,
+                .type = .OpenBrace,
+            },
+            .statements = &.{ident_x_expression},
+        },
+    });
+
+    const if_ = try test_tree.addNode(.{
+        .if_ = .{
+            .token = .{
+                .literal = "if",
+                .type = .If,
+                .location = null,
+            },
+            .condition = condition_expr,
+            .consequence = consequence_block,
+            .alternative = null,
+        },
+    });
+
+    const declare_assign = try test_tree.addNode(.{
+        .declare_assign = .{
+            .ident = ident_input,
+            .token = .{
+                .literal = ":=",
+                .type = .DeclareAssign,
+                .location = null,
+            },
+            .expr = if_,
+        },
+    });
+
+    _ = try test_tree.addNode(.{
+        .root = .{
+            .statements = &.{declare_assign},
+        },
+    });
+
+    const tree_string = try ast_tree.toString(testing.allocator);
+    defer testing.allocator.free(tree_string);
+
+    const test_tree_string = try test_tree.toString(testing.allocator);
+    defer testing.allocator.free(test_tree_string);
+
+    try testing.expectEqualStrings(test_tree_string, tree_string);
+}
 test "If-Else Expression" {
     const input =
         \\input := if (x < y) { x } else { null };
