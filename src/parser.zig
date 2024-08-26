@@ -69,6 +69,7 @@ pub const Parser = struct {
         try prefix_parse_fn_map.put(.Minus, parsePrefixExpression);
         try prefix_parse_fn_map.put(.True, parseBooleanLiteral);
         try prefix_parse_fn_map.put(.False, parseBooleanLiteral);
+        try prefix_parse_fn_map.put(.OpenParen, parseGroupedExpression);
 
         // registerInfix
         try infix_parse_fn_map.put(.Plus, parseInfixExpression);
@@ -323,6 +324,22 @@ pub const Parser = struct {
                 },
             },
         });
+    }
+
+    fn parseGroupedExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+        const start_token = self.cur_token;
+
+        self.nextToken();
+
+        const expr = try self.parseExpression(ast_tree, .Lowest);
+
+        if (!self.expectPeekAndEat(.CloseParen)) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any CloseParen ')' for grouped expression starting at: {any}.", .{start_token.type});
+            try self.errors.append(err_msg);
+            return error.GroupedExpressionNotClosed;
+        }
+
+        return expr;
     }
 
     fn parsePrefixExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
@@ -1170,6 +1187,86 @@ test "Operator Precedence" {
             \\          int: 5
             \\      literal
             \\        boolean: true
+            \\
+        },
+        .{
+            "1 + (2 + 3) + 4", // ((1 + (2 + 3)) + 4)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: +
+            \\      infix
+            \\        operator: +
+            \\        literal
+            \\          int: 1
+            \\        infix
+            \\          operator: +
+            \\          literal
+            \\            int: 2
+            \\          literal
+            \\            int: 3
+            \\      literal
+            \\        int: 4
+            \\
+        },
+        .{
+            "(5 + 5) * 2", // ((5 + 5) * 2)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: *
+            \\      infix
+            \\        operator: +
+            \\        literal
+            \\          int: 5
+            \\        literal
+            \\          int: 5
+            \\      literal
+            \\        int: 2
+            \\
+        },
+        .{
+            "2 / (5 + 5)", // (2 / (5 + 5))
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: /
+            \\      literal
+            \\        int: 2
+            \\      infix
+            \\        operator: +
+            \\        literal
+            \\          int: 5
+            \\        literal
+            \\          int: 5
+            \\
+        },
+        .{
+            "-(5 + 5)", // (-(5 + 5))
+            \\root
+            \\  expression
+            \\    prefix
+            \\      op: -
+            \\      infix
+            \\        operator: +
+            \\        literal
+            \\          int: 5
+            \\        literal
+            \\          int: 5
+            \\
+        },
+        .{
+            "!(true == true)", // (!(true == true))
+            \\root
+            \\  expression
+            \\    prefix
+            \\      op: !
+            \\      infix
+            \\        operator: ==
+            \\        literal
+            \\          boolean: true
+            \\        literal
+            \\          boolean: true
             \\
         },
     };
