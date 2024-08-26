@@ -59,7 +59,7 @@ pub const Parser = struct {
         errdefer arena.deinit();
 
         const errors = ArrayList([]const u8).init(alloc);
-        var prefix_parse_fn_map = std.AutoHashMap(TokenType, PrefixParseFunc).init(alloc);
+        var prefix_parse_fn_map = std.AutoHashMap(TokenType, PrefixParseFunc).init(alloc); // TODO: can we have a filled map initially or use a different approach?
         var infix_parse_fn_map = std.AutoHashMap(TokenType, InfixParseFunc).init(alloc);
 
         // registerPrefix
@@ -517,196 +517,532 @@ test "Statement Expression" {
     try testing.expectEqualStrings(tree_string, test_tree_string);
 }
 
-// test "Integer Literal Expression" {
-//     const input = "5;";
-//
-//     const tests = [_]Statement{
-//         // foobar;
-//         .{
-//             .expression = .{
-//                 .token = .{
-//                     .type = .{
-//                         .Literal = .Int,
-//                     },
-//                     .literal = "5",
-//                 },
-//                 .expr = .{
-//                     .int_literal_expr = .{
-//                         .token = .{
-//                             .type = .{
-//                                 .Literal = .Int,
-//                             },
-//                             .literal = "5",
-//                         },
-//                         .value = 5,
-//                     },
-//                 },
-//             },
-//         },
-//     };
-//
-//     try expectParsedEqStatements(input, &tests);
-// }
-//
-// test "Prefix Expression" {
-//     const input =
-//         \\!5;
-//         \\-5;
-//     ;
-//
-//     const right_five = try testing.allocator.create(Expression);
-//     right_five.* = .{
-//         .int_literal_expr = .{
-//             .token = five_token,
-//             .value = 5,
-//         },
-//     };
-//
-//     const right_fifteen = try testing.allocator.create(Expression);
-//     right_fifteen.* = .{
-//         .int_literal_expr = .{
-//             .token = .{
-//                 .type = .{
-//                     .Literal = .Int,
-//                 },
-//                 .literal = "15",
-//             },
-//             .value = 15,
-//         },
-//     };
-//
-//     const tests = [_]Statement{
-//         // foobar;
-//         .{
-//             .expression = .{
-//                 .token = .{
-//                     .type = .Bang,
-//                     .literal = "!",
-//                 },
-//                 .expr = .{
-//                     .prefix_expr = .{
-//                         .token = .{
-//                             .type = .Bang,
-//                             .literal = "!",
-//                         },
-//                         .operator = "!",
-//                         .right = right_five,
-//                     },
-//                 },
-//             },
-//         },
-//         .{
-//             .expression = .{
-//                 .token = .{
-//                     .type = .Minus,
-//                     .literal = "-",
-//                 },
-//                 .expr = .{
-//                     .prefix_expr = .{
-//                         .token = .{
-//                             .type = .Minus,
-//                             .literal = "-",
-//                         },
-//                         .operator = "-",
-//                         .right = right_fifteen,
-//                     },
-//                 },
-//             },
-//         },
-//     };
-//
-//     defer for (tests) |test_stmt| {
-//         test_stmt.deinit(testing.allocator);
-//     };
-//
-//     try expectParsedEqStatements(input, &tests);
-// }
-//
-// test "Infix Expression" {
-//     const input =
-//         \\5 + 5;
-//         \\5 - 5;
-//         \\5 * 5;
-//         \\5 / 5;
-//         \\5 > 5;
-//         \\5 < 5;
-//         \\5 == 5;
-//         \\5 != 5;
-//     ;
-//
-//     const tests = [_]Statement{
-//         try gen_infix_statement(testing.allocator, "+"),
-//         try gen_infix_statement(testing.allocator, "-"),
-//         try gen_infix_statement(testing.allocator, "*"),
-//         try gen_infix_statement(testing.allocator, "/"),
-//         try gen_infix_statement(testing.allocator, ">"),
-//         try gen_infix_statement(testing.allocator, "<"),
-//         try gen_infix_statement(testing.allocator, "=="),
-//         try gen_infix_statement(testing.allocator, "!="),
-//     };
-//
-//     defer for (tests) |test_stmt| {
-//         test_stmt.deinit(testing.allocator);
-//     };
-//
-//     try expectParsedEqStatements(input, &tests);
-// }
-//
-// test "Operator Precedence" {
-//     const tests = .{
-//         .{
-//             "-a * b",
-//             "((-a) * b)",
-//         },
-//         .{
-//             "!-a",
-//             "(!(-a))",
-//         },
-//         .{
-//             "a + b + c",
-//             "((a + b) + c)",
-//         },
-//         .{
-//             "a * b * c",
-//             "((a * b) * c)",
-//         },
-//         .{
-//             "a * b / c",
-//             "((a * b) / c)",
-//         },
-//         .{
-//             "a + b / c",
-//             "(a + (b / c))",
-//         },
-//         .{
-//             "a + b * c + d / e - f",
-//             "(((a + (b * c)) + (d / e)) - f)",
-//         },
-//         .{
-//             "3 + 4; -5 * 5",
-//             "(3 + 4)((-5) * 5)",
-//         },
-//         .{
-//             "5 > 4 == 3 < 4",
-//             "((5 > 4) == (3 < 4))",
-//         },
-//         .{
-//             "5 < 4 != 3 > 4",
-//             "((5 < 4) != (3 > 4))",
-//         },
-//         .{
-//             "3 + 4 * 5 == 3 * 1 + 4 * 5",
-//             "(( 3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
-//         },
-//     };
-//
-//     // TODO: seems like .operator of the parsed program has an invalid pointer or something?
-//     inline for (tests) |expected| {
-//         var program = try parseTree(test_allocator, expected[0]);
-//         defer program.deinit();
-//         std.debug.print("{any}", .{std.json.fmt(program.statements.items, .{})});
-//         std.debug.print("to str {s}", .{expected[0]});
-//         // const actual = try program.toString(test_allocator);
-//         // try testing.expectEqualStrings(expected[1], actual);
-//     }
-// }
+test "Integer Literal Expression" {
+    const input = "5;";
+
+    var ast_tree = try parseTree(testing.allocator, input);
+    defer ast_tree.deinit();
+
+    var test_tree = ast.Tree.init(testing.allocator);
+    defer test_tree.deinit();
+
+    const foobar_ident = try test_tree.addNode(.{
+        .literal = .{
+            .token = .{
+                .type = .{ .Literal = .Int },
+                .literal = "5",
+                .location = null,
+            },
+            .value = .{ .int = 5 },
+        },
+    });
+
+    const expression_statement = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{
+                .type = .{ .Literal = .Int },
+                .literal = "5",
+                .location = null,
+            },
+            .expr = foobar_ident,
+        },
+    });
+
+    _ = try test_tree.addNode(.{
+        .root = .{
+            .statements = &.{expression_statement},
+        },
+    });
+
+    const tree_string = try ast_tree.toString(std.testing.allocator);
+    defer std.testing.allocator.free(tree_string);
+
+    const test_tree_string = try test_tree.toString(std.testing.allocator);
+    defer std.testing.allocator.free(test_tree_string);
+
+    try testing.expectEqualStrings(tree_string, test_tree_string);
+}
+
+test "Prefix Expression" {
+    const input =
+        \\!5;
+        \\-5;
+    ;
+
+    var ast_tree = try parseTree(testing.allocator, input);
+    defer ast_tree.deinit();
+
+    var test_tree = ast.Tree.init(testing.allocator);
+    defer test_tree.deinit();
+
+    const literal_5 = try test_tree.addNode(.{
+        .literal = .{
+            .token = Token{
+                .type = .{ .Literal = .Int },
+                .literal = "5",
+                .location = null, // TODO
+            },
+            .value = .{ .int = 5 },
+        },
+    });
+    const prefix_expr = try test_tree.addNode(.{
+        .prefix = .{
+            .token = .{ .literal = "!", .type = .Bang, .location = null },
+            .operator = "!",
+            .right = literal_5,
+        },
+    });
+    const prefix_expr2 = try test_tree.addNode(.{
+        .prefix = .{
+            .token = .{ .literal = "-", .type = .Minus, .location = null },
+            .operator = "-",
+            .right = literal_5,
+        },
+    });
+
+    const expression_statement = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "!", .type = .Bang, .location = null },
+            .expr = prefix_expr,
+        },
+    });
+
+    const expression_statement2 = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "-", .type = .Minus, .location = null },
+            .expr = prefix_expr2,
+        },
+    });
+
+    _ = try test_tree.addNode(.{
+        .root = .{
+            .statements = &.{ expression_statement, expression_statement2 },
+        },
+    });
+
+    const tree_string = try ast_tree.toString(std.testing.allocator);
+    defer std.testing.allocator.free(tree_string);
+
+    const test_tree_string = try test_tree.toString(std.testing.allocator);
+    defer std.testing.allocator.free(test_tree_string);
+
+    try testing.expectEqualStrings(tree_string, test_tree_string);
+}
+
+test "Infix Expression" {
+    const input =
+        \\5 + 5;
+        \\5 - 5;
+        \\5 * 5;
+        \\5 / 5;
+        \\5 > 5;
+        \\5 < 5;
+        \\5 == 5;
+        \\5 != 5;
+    ;
+
+    var ast_tree = try parseTree(testing.allocator, input);
+    defer ast_tree.deinit();
+
+    var test_tree = ast.Tree.init(testing.allocator);
+    defer test_tree.deinit();
+
+    const literal_5 = try test_tree.addNode(.{
+        .literal = .{
+            .token = Token{
+                .type = .{ .Literal = .Int },
+                .literal = "5",
+                .location = null, // TODO
+            },
+            .value = .{ .int = 5 },
+        },
+    });
+
+    const infixes = .{
+        .{ .literal = "+", .type = .Plus, .location = null },
+        .{ .literal = "-", .type = .Minus, .location = null },
+        .{ .literal = "*", .type = .Star, .location = null },
+        .{ .literal = "/", .type = .Slash, .location = null },
+        .{ .literal = ">", .type = .Gt, .location = null },
+        .{ .literal = "<", .type = .Lt, .location = null },
+        .{ .literal = "==", .type = .EqEq, .location = null },
+        .{ .literal = "!=", .type = .NotEq, .location = null },
+    };
+
+    const infix_expr_plus = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[0],
+            .operator = "+",
+            .right = literal_5,
+            .left = literal_5,
+        },
+    });
+
+    const expression_statement_plus = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "+", .type = .Plus, .location = null },
+            .expr = infix_expr_plus,
+        },
+    });
+
+    const infix_expr_minus = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[1],
+            .operator = "-",
+            .right = literal_5,
+            .left = literal_5,
+        },
+    });
+
+    const expression_statement_minus = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "-", .type = .Minus, .location = null },
+            .expr = infix_expr_minus,
+        },
+    });
+
+    const infix_expr_star = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[2],
+            .operator = "*",
+            .right = literal_5,
+            .left = literal_5,
+        },
+    });
+
+    const expression_statement_star = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "*", .type = .Star, .location = null },
+            .expr = infix_expr_star,
+        },
+    });
+
+    const infix_expr_slash = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[3],
+            .operator = "/",
+            .right = literal_5,
+            .left = literal_5,
+        },
+    });
+
+    const expression_statement_slash = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "/", .type = .Slash, .location = null },
+            .expr = infix_expr_slash,
+        },
+    });
+
+    const infix_expr_lt = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[4],
+            .operator = "<",
+            .right = literal_5,
+            .left = literal_5,
+        },
+    });
+
+    const expression_statement_lt = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "<", .type = .Lt, .location = null },
+            .expr = infix_expr_lt,
+        },
+    });
+
+    const infix_expr_gt = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[5],
+            .operator = ">",
+            .right = literal_5,
+            .left = literal_5,
+        },
+    });
+
+    const expression_statement_gt = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = ">", .type = .Gt, .location = null },
+            .expr = infix_expr_gt,
+        },
+    });
+
+    const infix_expr_eqeq = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[6],
+            .operator = "==",
+            .right = literal_5,
+            .left = literal_5,
+        },
+    });
+
+    const expression_statement_eqeq = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "==", .type = .EqEq, .location = null },
+            .expr = infix_expr_eqeq,
+        },
+    });
+
+    const infix_expr_noteq = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[7],
+            .operator = "!=",
+            .right = literal_5,
+            .left = literal_5,
+        },
+    });
+
+    const expression_statement_noteq = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "!=", .type = .NotEq, .location = null },
+            .expr = infix_expr_noteq,
+        },
+    });
+
+    _ = try test_tree.addNode(.{
+        .root = .{
+            .statements = &.{
+                expression_statement_plus,
+                expression_statement_minus,
+                expression_statement_star,
+                expression_statement_slash,
+                expression_statement_gt,
+                expression_statement_lt,
+                expression_statement_eqeq,
+                expression_statement_noteq,
+            },
+        },
+    });
+
+    const tree_string = try ast_tree.toString(std.testing.allocator);
+    defer std.testing.allocator.free(tree_string);
+
+    const test_tree_string = try test_tree.toString(std.testing.allocator);
+    defer std.testing.allocator.free(test_tree_string);
+
+    try testing.expectEqualStrings(tree_string, test_tree_string);
+}
+
+test "Operator Precedence" {
+    const tests = .{
+        .{
+            "-a * b", // ((-a) * b)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: *
+            \\      prefix
+            \\        op: -
+            \\        ident
+            \\          ident: a
+            \\      ident
+            \\        ident: b
+            \\
+        },
+        .{
+            "!-a", // (!(-a))
+            \\root
+            \\  expression
+            \\    prefix
+            \\      op: !
+            \\      prefix
+            \\        op: -
+            \\        ident
+            \\          ident: a
+            \\
+        },
+        .{
+            "a + b + c", // ((a + b) + c)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: +
+            \\      infix
+            \\        operator: +
+            \\        ident
+            \\          ident: a
+            \\        ident
+            \\          ident: b
+            \\      ident
+            \\        ident: c
+            \\
+        },
+        .{
+            "a * b * c", // ((a * b) * c)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: *
+            \\      infix
+            \\        operator: *
+            \\        ident
+            \\          ident: a
+            \\        ident
+            \\          ident: b
+            \\      ident
+            \\        ident: c
+            \\
+        },
+        .{
+            "a * b / c", // ((a * b) / c)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: /
+            \\      infix
+            \\        operator: *
+            \\        ident
+            \\          ident: a
+            \\        ident
+            \\          ident: b
+            \\      ident
+            \\        ident: c
+            \\
+        },
+        .{
+            "a + b / c", // (a + (b / c))
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: +
+            \\      ident
+            \\        ident: a
+            \\      infix
+            \\        operator: /
+            \\        ident
+            \\          ident: b
+            \\        ident
+            \\          ident: c
+            \\
+        },
+        .{
+            "a + b * c + d / e - f", // (((a + (b * c)) + (d / e)) - f)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: -
+            \\      infix
+            \\        operator: +
+            \\        infix
+            \\          operator: +
+            \\          ident
+            \\            ident: a
+            \\          infix
+            \\            operator: *
+            \\            ident
+            \\              ident: b
+            \\            ident
+            \\              ident: c
+            \\        infix
+            \\          operator: /
+            \\          ident
+            \\            ident: d
+            \\          ident
+            \\            ident: e
+            \\      ident
+            \\        ident: f
+            \\
+        },
+        .{
+            "3 + 4; -5 * 5", // (3 + 4)((-5) * 5)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: +
+            \\      literal
+            \\        int: 3
+            \\      literal
+            \\        int: 4
+            \\  expression
+            \\    infix
+            \\      operator: *
+            \\      prefix
+            \\        op: -
+            \\        literal
+            \\          int: 5
+            \\      literal
+            \\        int: 5
+            \\
+        },
+        .{
+            "5 > 4 == 3 < 4", // ((5 > 4) == (3 < 4))
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: ==
+            \\      infix
+            \\        operator: >
+            \\        literal
+            \\          int: 5
+            \\        literal
+            \\          int: 4
+            \\      infix
+            \\        operator: <
+            \\        literal
+            \\          int: 3
+            \\        literal
+            \\          int: 4
+            \\
+        },
+        .{
+            "5 < 4 != 3 > 4", // ((5 < 4) != (3 > 4))
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: !=
+            \\      infix
+            \\        operator: <
+            \\        literal
+            \\          int: 5
+            \\        literal
+            \\          int: 4
+            \\      infix
+            \\        operator: >
+            \\        literal
+            \\          int: 3
+            \\        literal
+            \\          int: 4
+            \\
+        },
+        .{
+            "3 + 4 * 5 == 3 * 1 + 4 * 5", // (( 3 + (4 * 5)) == ((3 * 1) + (4 * 5)))
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: ==
+            \\      infix
+            \\        operator: +
+            \\        literal
+            \\          int: 3
+            \\        infix
+            \\          operator: *
+            \\          literal
+            \\            int: 4
+            \\          literal
+            \\            int: 5
+            \\      infix
+            \\        operator: +
+            \\        infix
+            \\          operator: *
+            \\          literal
+            \\            int: 3
+            \\          literal
+            \\            int: 1
+            \\        infix
+            \\          operator: *
+            \\          literal
+            \\          literal
+            \\            int: 4
+            \\            int: 5
+            \\
+        },
+    };
+
+    inline for (tests) |case| {
+        var ast_tree = try parseTree(testing.allocator, case[0]);
+        defer ast_tree.deinit();
+
+        const tree_string = try ast_tree.toString(testing.allocator);
+        defer testing.allocator.free(tree_string);
+
+        try testing.expectEqualStrings(case[1], tree_string);
+    }
+}
