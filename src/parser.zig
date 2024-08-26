@@ -67,6 +67,8 @@ pub const Parser = struct {
         try prefix_parse_fn_map.put(.{ .Literal = .Int }, parseIntegerLiteral);
         try prefix_parse_fn_map.put(.Bang, parsePrefixExpression);
         try prefix_parse_fn_map.put(.Minus, parsePrefixExpression);
+        try prefix_parse_fn_map.put(.True, parseBooleanLiteral);
+        try prefix_parse_fn_map.put(.False, parseBooleanLiteral);
 
         // registerInfix
         try infix_parse_fn_map.put(.Plus, parseInfixExpression);
@@ -310,6 +312,19 @@ pub const Parser = struct {
         });
     }
 
+    fn parseBooleanLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+        assert(self.cur_token.type == .False or self.cur_token.type == .True);
+
+        return ast_tree.addNode(.{
+            .literal = .{
+                .token = self.cur_token,
+                .value = .{
+                    .boolean = self.curTokenIs(.True),
+                },
+            },
+        });
+    }
+
     fn parsePrefixExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
         const operator = self.cur_token.literal;
         const token = self.cur_token;
@@ -353,8 +368,10 @@ fn parseTree(alloc: std.mem.Allocator, input: []const u8) !ast.Tree {
     var parser = try Parser.init(alloc, lexer);
     defer parser.deinit();
 
-    const ast_tree = try parser.parseTree(alloc);
-    try parser.checkParserErrors();
+    const ast_tree = parser.parseTree(alloc) catch |err| {
+        try parser.checkParserErrors();
+        return err;
+    };
 
     return ast_tree;
 }
@@ -420,7 +437,7 @@ test "DeclareAssign Statement" {
     const test_tree_string = try test_tree.toString(std.testing.allocator);
     defer std.testing.allocator.free(test_tree_string);
 
-    try testing.expectEqualStrings(tree_string, test_tree_string);
+    try testing.expectEqualStrings(test_tree_string, tree_string);
 }
 
 test "Return Statement" {
@@ -468,7 +485,7 @@ test "Return Statement" {
     const test_tree_string = try test_tree.toString(std.testing.allocator);
     defer std.testing.allocator.free(test_tree_string);
 
-    try testing.expectEqualStrings(tree_string, test_tree_string);
+    try testing.expectEqualStrings(test_tree_string, tree_string);
 }
 
 test "Statement Expression" {
@@ -514,7 +531,7 @@ test "Statement Expression" {
     const test_tree_string = try test_tree.toString(std.testing.allocator);
     defer std.testing.allocator.free(test_tree_string);
 
-    try testing.expectEqualStrings(tree_string, test_tree_string);
+    try testing.expectEqualStrings(test_tree_string, tree_string);
 }
 
 test "Integer Literal Expression" {
@@ -560,7 +577,7 @@ test "Integer Literal Expression" {
     const test_tree_string = try test_tree.toString(std.testing.allocator);
     defer std.testing.allocator.free(test_tree_string);
 
-    try testing.expectEqualStrings(tree_string, test_tree_string);
+    try testing.expectEqualStrings(test_tree_string, tree_string);
 }
 
 test "Prefix Expression" {
@@ -626,7 +643,7 @@ test "Prefix Expression" {
     const test_tree_string = try test_tree.toString(std.testing.allocator);
     defer std.testing.allocator.free(test_tree_string);
 
-    try testing.expectEqualStrings(tree_string, test_tree_string);
+    try testing.expectEqualStrings(test_tree_string, tree_string);
 }
 
 test "Infix Expression" {
@@ -639,6 +656,9 @@ test "Infix Expression" {
         \\5 < 5;
         \\5 == 5;
         \\5 != 5;
+        \\true == true;
+        \\false == false;
+        \\true != false;
     ;
 
     var ast_tree = try parseTree(testing.allocator, input);
@@ -649,12 +669,34 @@ test "Infix Expression" {
 
     const literal_5 = try test_tree.addNode(.{
         .literal = .{
-            .token = Token{
+            .token = .{
                 .type = .{ .Literal = .Int },
                 .literal = "5",
                 .location = null, // TODO
             },
             .value = .{ .int = 5 },
+        },
+    });
+
+    const literal_true = try test_tree.addNode(.{
+        .literal = .{
+            .token = .{
+                .type = .True,
+                .literal = "true",
+                .location = null, // TODO
+            },
+            .value = .{ .boolean = true },
+        },
+    });
+
+    const literal_false = try test_tree.addNode(.{
+        .literal = .{
+            .token = .{
+                .type = .False,
+                .literal = "false",
+                .location = null, // TODO
+            },
+            .value = .{ .boolean = false },
         },
     });
 
@@ -797,6 +839,51 @@ test "Infix Expression" {
         },
     });
 
+    const infix_expr_true = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[6],
+            .operator = "==",
+            .right = literal_true,
+            .left = literal_true,
+        },
+    });
+    const expression_statement_true = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "==", .type = .EqEq, .location = null },
+            .expr = infix_expr_true,
+        },
+    });
+
+    const infix_expr_false = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[6],
+            .operator = "==",
+            .right = literal_false,
+            .left = literal_false,
+        },
+    });
+    const expression_statement_false = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "==", .type = .EqEq, .location = null },
+            .expr = infix_expr_false,
+        },
+    });
+
+    const infix_expr_truefalse = try test_tree.addNode(.{
+        .infix = .{
+            .token = infixes[7],
+            .operator = "!=",
+            .right = literal_false,
+            .left = literal_true,
+        },
+    });
+    const expression_statement_truefalse = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .literal = "!=", .type = .NotEq, .location = null },
+            .expr = infix_expr_truefalse,
+        },
+    });
+
     _ = try test_tree.addNode(.{
         .root = .{
             .statements = &.{
@@ -808,6 +895,9 @@ test "Infix Expression" {
                 expression_statement_lt,
                 expression_statement_eqeq,
                 expression_statement_noteq,
+                expression_statement_true,
+                expression_statement_false,
+                expression_statement_truefalse,
             },
         },
     });
@@ -818,7 +908,7 @@ test "Infix Expression" {
     const test_tree_string = try test_tree.toString(std.testing.allocator);
     defer std.testing.allocator.free(test_tree_string);
 
-    try testing.expectEqualStrings(tree_string, test_tree_string);
+    try testing.expectEqualStrings(test_tree_string, tree_string);
 }
 
 test "Operator Precedence" {
@@ -1029,9 +1119,57 @@ test "Operator Precedence" {
             \\        infix
             \\          operator: *
             \\          literal
-            \\          literal
             \\            int: 4
+            \\          literal
             \\            int: 5
+            \\
+        },
+        .{
+            "true", // true
+            \\root
+            \\  expression
+            \\    literal
+            \\      boolean: true
+            \\
+        },
+        .{
+            "false", // false
+            \\root
+            \\  expression
+            \\    literal
+            \\      boolean: false
+            \\
+        },
+        .{
+            "3 > 5 == false", // ((3 > 5) == false)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: ==
+            \\      infix
+            \\        operator: >
+            \\        literal
+            \\          int: 3
+            \\        literal
+            \\          int: 5
+            \\      literal
+            \\        boolean: false
+            \\
+        },
+        .{
+            "3 < 5 == true", // ((3 < 5) == true)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: ==
+            \\      infix
+            \\        operator: <
+            \\        literal
+            \\          int: 3
+            \\        literal
+            \\          int: 5
+            \\      literal
+            \\        boolean: true
             \\
         },
     };
@@ -1045,4 +1183,59 @@ test "Operator Precedence" {
 
         try testing.expectEqualStrings(case[1], tree_string);
     }
+}
+
+test "Boolean Literal Expression" {
+    const input =
+        \\true;
+        \\false;
+    ;
+
+    var ast_tree = try parseTree(testing.allocator, input);
+    defer ast_tree.deinit();
+
+    var test_tree = ast.Tree.init(testing.allocator);
+    defer test_tree.deinit();
+
+    const true_literal = try test_tree.addNode(.{
+        .literal = .{
+            .token = .{ .literal = "true", .location = null, .type = .True },
+            .value = .{ .boolean = true },
+        },
+    });
+
+    const false_literal = try test_tree.addNode(.{
+        .literal = .{
+            .token = .{ .literal = "false", .location = null, .type = .False },
+            .value = .{ .boolean = false },
+        },
+    });
+
+    const true_expr = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .type = .True, .location = null, .literal = "true" },
+            .expr = true_literal,
+        },
+    });
+
+    const false_expr = try test_tree.addNode(.{
+        .expression = .{
+            .token = .{ .type = .False, .location = null, .literal = "false" },
+            .expr = false_literal,
+        },
+    });
+
+    _ = try test_tree.addNode(.{
+        .root = .{
+            .statements = &.{ true_expr, false_expr },
+        },
+    });
+
+    const tree_string = try ast_tree.toString(testing.allocator);
+    defer testing.allocator.free(tree_string);
+
+    const test_tree_string = try test_tree.toString(testing.allocator);
+    defer testing.allocator.free(test_tree_string);
+
+    try testing.expectEqualStrings(test_tree_string, tree_string);
 }

@@ -97,6 +97,7 @@ pub const Tree = struct {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
                 switch (node.literal.value) {
                     .int => |value| try writer.print("int: {d}\n", .{value}),
+                    .boolean => |value| try writer.print("boolean: {any}\n", .{value}),
                     .float => |value| try writer.print("float: {d}\n", .{value}),
                     .string => |value| try writer.print("string: {s}\n", .{value}),
                 }
@@ -168,6 +169,7 @@ pub const Node = union(enum) {
 
     const LiteralValue = union(enum) {
         int: i64,
+        boolean: bool,
         float: f64,
         string: []const u8,
     };
