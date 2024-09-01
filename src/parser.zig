@@ -466,21 +466,15 @@ pub const Parser = struct {
 };
 
 // ------------- Testing ---------------
-fn parseTree(alloc: std.mem.Allocator, input: []const u8) !ast.Tree {
-    const lexer = Lexer.init(input);
+fn testTreeString(alloc: std.mem.Allocator, input_to_parse: []const u8, expected_tree_str: []const u8) !void {
+    const lexer = Lexer.init(input_to_parse);
     var parser = try Parser.init(alloc, lexer);
     defer parser.deinit();
 
-    const ast_tree = parser.parseTree(alloc) catch |err| {
+    var ast_tree = parser.parseTree(alloc) catch |err| {
         try parser.checkParserErrors();
         return err;
     };
-
-    return ast_tree;
-}
-
-fn testTreeString(alloc: std.mem.Allocator, input_to_parse: []const u8, expected_tree_str: []const u8) !void {
-    var ast_tree = try parseTree(alloc, input_to_parse);
     defer ast_tree.deinit();
 
     const tree_string = try ast_tree.toString(testing.allocator);
