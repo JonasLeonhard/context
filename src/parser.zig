@@ -72,6 +72,7 @@ pub const Parser = struct {
         try prefix_parse_fn_map.put(.Null, parseNullLiteral);
         try prefix_parse_fn_map.put(.OpenParen, parseGroupedExpression);
         try prefix_parse_fn_map.put(.If, parseIfExpression);
+        try prefix_parse_fn_map.put(.Fn, parseFunctionLiteral);
 
         // registerInfix
         try infix_parse_fn_map.put(.Plus, parseInfixExpression);
@@ -337,6 +338,74 @@ pub const Parser = struct {
                 .value = .null,
             },
         });
+    }
+
+    fn parseFunctionLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+        const start_token = self.cur_token;
+
+        if (!self.expectPeekAndEat(.OpenParen)) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any OpenParen for function literal starting at: {any}.", .{start_token.type});
+            try self.errors.append(err_msg);
+            return error.FunctionLiteralParamsNotOpened;
+        }
+
+        const parameters = try self.parseFunctionParameters(ast_tree);
+
+        if (!self.expectPeekAndEat(.OpenBrace)) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any OpenBrace for function literal body starting at: {any}.", .{start_token.type});
+            try self.errors.append(err_msg);
+            return error.FunctionLiteralParamsNotClosed;
+        }
+
+        return ast_tree.addNode(.{
+            .function = .{
+                .token = start_token,
+                .parameters = parameters,
+                .body = try self.parseBlockStatement(ast_tree),
+            },
+        });
+    }
+
+    // TODO: add typed parameters!
+    fn parseFunctionParameters(self: *Parser, ast_tree: *ast.Tree) ![]ast.NodeIndex {
+        var parameters = std.ArrayList(ast.NodeIndex).init(ast_tree.arena.allocator());
+
+        if (self.peekTokenIs(.CloseParen)) {
+            self.nextToken();
+            return parameters.toOwnedSlice();
+        }
+
+        self.nextToken();
+
+        {
+            const ident = try ast_tree.addNode(.{
+                .ident = .{
+                    .token = self.cur_token,
+                    .value = self.cur_token.literal,
+                },
+            });
+
+            try parameters.append(ident);
+        }
+
+        while (self.peekTokenIs(.Comma)) {
+            self.nextToken();
+            self.nextToken();
+            const ident = try ast_tree.addNode(.{
+                .ident = .{
+                    .token = self.cur_token,
+                    .value = self.cur_token.literal,
+                },
+            });
+            try parameters.append(ident);
+        }
+
+        if (!self.expectPeekAndEat(.CloseParen)) {
+            try self.errors.append("Could not find any CloseParen for function parameters.");
+            return error.FunctionLiteralParamsNotClosed;
+        }
+
+        return parameters.toOwnedSlice();
     }
 
     fn parseGroupedExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
@@ -1145,6 +1214,66 @@ test "If-Else Expression" {
             \\        expression
             \\          literal
             \\            null: null
+            \\
+        },
+    };
+
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
+}
+
+test "Function Literal + parameters" {
+    const tests = .{
+        .{
+            "fn(x, y) { x + y; };",
+            \\root
+            \\  expression
+            \\    function
+            \\      ident
+            \\        ident: x
+            \\      ident
+            \\        ident: y
+            \\      block
+            \\        expression
+            \\          infix
+            \\            operator: +
+            \\            ident
+            \\              ident: x
+            \\            ident
+            \\              ident: y
+            \\
+        },
+        .{
+            "fn() {};",
+            \\root
+            \\  expression
+            \\    function
+            \\      block
+            \\
+        },
+        .{
+            "fn(x) {};",
+            \\root
+            \\  expression
+            \\    function
+            \\      ident
+            \\        ident: x
+            \\      block
+            \\
+        },
+        .{
+            "fn(x, y, z) {};",
+            \\root
+            \\  expression
+            \\    function
+            \\      ident
+            \\        ident: x
+            \\      ident
+            \\        ident: y
+            \\      ident
+            \\        ident: z
+            \\      block
             \\
         },
     };

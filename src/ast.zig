@@ -98,6 +98,12 @@ pub const Tree = struct {
                 try writer.print("op: {s}\n", .{node.prefix.operator});
                 try self.printNode(node.prefix.right, indent + 1, writer);
             },
+            .function => {
+                for (node.function.parameters) |param| {
+                    try self.printNode(param, indent + 1, writer);
+                }
+                try self.printNode(node.function.body, indent + 1, writer);
+            },
             .literal => {
                 try writer.writeByteNTimes(' ', (indent + 1) * 2);
                 switch (node.literal.value) {
@@ -136,6 +142,7 @@ pub const Node = union(enum) {
     prefix: Prefix,
     literal: Literal,
     if_: If,
+    function: Function,
 
     pub const Root = struct {
         /// Statements
@@ -198,6 +205,14 @@ pub const Node = union(enum) {
         consequence: NodeIndex,
         /// BlockStatement
         alternative: ?NodeIndex,
+    };
+
+    pub const Function = struct {
+        token: Token,
+        /// Ident
+        parameters: []NodeIndex,
+        /// BlockStatement
+        body: NodeIndex,
     };
 
     pub const Literal = struct {
