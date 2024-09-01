@@ -479,539 +479,254 @@ fn parseTree(alloc: std.mem.Allocator, input: []const u8) !ast.Tree {
     return ast_tree;
 }
 
-test "DeclareAssign Statement" {
-    const input =
-        \\x := 5;
-    ;
-
-    var ast_tree = try parseTree(testing.allocator, input);
+fn testTreeString(alloc: std.mem.Allocator, input_to_parse: []const u8, expected_tree_str: []const u8) !void {
+    var ast_tree = try parseTree(alloc, input_to_parse);
     defer ast_tree.deinit();
 
-    var test_tree = ast.Tree.init(testing.allocator);
-    defer test_tree.deinit();
+    const tree_string = try ast_tree.toString(testing.allocator);
+    defer testing.allocator.free(tree_string);
 
-    const literal_5 = try test_tree.addNode(
+    try testing.expectEqualStrings(expected_tree_str, tree_string);
+}
+
+test "DeclareAssign Statement" {
+    const tests = .{
         .{
-            .literal = .{
-                .token = Token{
-                    .type = .{
-                        .Literal = .Int,
-                    },
-                    .literal = "5",
-                    .location = null,
-                },
-                .value = .{
-                    .int = 5,
-                },
-            },
+            "x := 5;",
+            \\root
+            \\  declare_assign
+            \\    ident
+            \\      ident: x
+            \\    literal
+            \\      int: 5
+            \\
         },
-    );
+    };
 
-    const ident_x = try test_tree.addNode(.{
-        .ident = .{
-            .token = Token{
-                .type = .Ident,
-                .literal = "x",
-                .location = null,
-            },
-            .value = "x",
-        },
-    });
-
-    const declare_assign = try test_tree.addNode(.{
-        .declare_assign = .{
-            .ident = ident_x,
-            .expr = literal_5, // TODO: literal_5
-            .token = Token{
-                .type = .Plus,
-                .literal = "+",
-                .location = null,
-            },
-        },
-    });
-
-    _ = try test_tree.addNode(.{
-        .root = .{ .statements = &.{declare_assign} },
-    });
-
-    const tree_string = try ast_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(tree_string);
-
-    const test_tree_string = try test_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(test_tree_string);
-
-    try testing.expectEqualStrings(test_tree_string, tree_string);
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
 }
 
 test "Return Statement" {
-    const input =
-        \\return 5;
-    ;
-
-    var ast_tree = try parseTree(testing.allocator, input);
-    defer ast_tree.deinit();
-
-    var test_tree = ast.Tree.init(testing.allocator);
-    defer test_tree.deinit();
-
-    // const literal_5 = try test_tree.addNode(.{
-    //     .literal = .{
-    //         .token = Token{
-    //             .type = .{ .Literal = .Int },
-    //             .literal = "5",
-    //             .location = null, // TODO
-    //         },
-    //         .value = .{ .int = 5 },
-    //     },
-    // });
-
-    const return_stmt = try test_tree.addNode(.{
-        .return_ = .{
-            .token = Token{
-                .type = .Return,
-                .location = null,
-                .literal = "return",
-            },
-            .expr = null, // TODO: literal_5
+    // TODO: return expression!
+    const tests = .{
+        .{
+            "return 5;",
+            \\root
+            \\  return_
+            \\
         },
-    });
+    };
 
-    _ = try test_tree.addNode(.{
-        .root = .{
-            .statements = &.{return_stmt},
-        },
-    });
-
-    const tree_string = try ast_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(tree_string);
-
-    const test_tree_string = try test_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(test_tree_string);
-
-    try testing.expectEqualStrings(test_tree_string, tree_string);
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
 }
 
 test "Statement Expression" {
-    const input = "foobar;";
-
-    var ast_tree = try parseTree(testing.allocator, input);
-    defer ast_tree.deinit();
-
-    var test_tree = ast.Tree.init(testing.allocator);
-    defer test_tree.deinit();
-
-    const foobar_ident = try test_tree.addNode(.{
-        .ident = .{
-            .token = Token{
-                .type = .Ident,
-                .literal = "foobar",
-                .location = null, // TODO
-            },
-            .value = "foobar",
+    const tests = .{
+        .{
+            "foobar;",
+            \\root
+            \\  expression
+            \\    ident
+            \\      ident: foobar
+            \\
         },
-    });
+    };
 
-    const expression_statement = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{
-                .type = .Ident,
-                .literal = "foobar",
-                .location = null,
-            },
-            .expr = foobar_ident, // TODO
-        },
-    });
-
-    _ = try test_tree.addNode(.{
-        .root = .{
-            .statements = &.{expression_statement},
-        },
-    });
-
-    const tree_string = try ast_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(tree_string);
-
-    const test_tree_string = try test_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(test_tree_string);
-
-    try testing.expectEqualStrings(test_tree_string, tree_string);
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
 }
 
 test "Integer Literal Expression" {
-    const input = "5;";
-
-    var ast_tree = try parseTree(testing.allocator, input);
-    defer ast_tree.deinit();
-
-    var test_tree = ast.Tree.init(testing.allocator);
-    defer test_tree.deinit();
-
-    const foobar_ident = try test_tree.addNode(.{
-        .literal = .{
-            .token = .{
-                .type = .{ .Literal = .Int },
-                .literal = "5",
-                .location = null,
-            },
-            .value = .{ .int = 5 },
+    const tests = .{
+        .{
+            "5;",
+            \\root
+            \\  expression
+            \\    literal
+            \\      int: 5
+            \\
         },
-    });
+    };
 
-    const expression_statement = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{
-                .type = .{ .Literal = .Int },
-                .literal = "5",
-                .location = null,
-            },
-            .expr = foobar_ident,
-        },
-    });
-
-    _ = try test_tree.addNode(.{
-        .root = .{
-            .statements = &.{expression_statement},
-        },
-    });
-
-    const tree_string = try ast_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(tree_string);
-
-    const test_tree_string = try test_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(test_tree_string);
-
-    try testing.expectEqualStrings(test_tree_string, tree_string);
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
 }
 
 test "Prefix Expression" {
-    const input =
-        \\!5;
-        \\-5;
-    ;
-
-    var ast_tree = try parseTree(testing.allocator, input);
-    defer ast_tree.deinit();
-
-    var test_tree = ast.Tree.init(testing.allocator);
-    defer test_tree.deinit();
-
-    const literal_5 = try test_tree.addNode(.{
-        .literal = .{
-            .token = Token{
-                .type = .{ .Literal = .Int },
-                .literal = "5",
-                .location = null, // TODO
-            },
-            .value = .{ .int = 5 },
+    const tests = .{
+        .{
+            "!5;",
+            \\root
+            \\  expression
+            \\    prefix
+            \\      op: !
+            \\      literal
+            \\        int: 5
+            \\
         },
-    });
-    const prefix_expr = try test_tree.addNode(.{
-        .prefix = .{
-            .token = .{ .literal = "!", .type = .Bang, .location = null },
-            .operator = "!",
-            .right = literal_5,
+        .{
+            "-5;",
+            \\root
+            \\  expression
+            \\    prefix
+            \\      op: -
+            \\      literal
+            \\        int: 5
+            \\
         },
-    });
-    const prefix_expr2 = try test_tree.addNode(.{
-        .prefix = .{
-            .token = .{ .literal = "-", .type = .Minus, .location = null },
-            .operator = "-",
-            .right = literal_5,
-        },
-    });
+    };
 
-    const expression_statement = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "!", .type = .Bang, .location = null },
-            .expr = prefix_expr,
-        },
-    });
-
-    const expression_statement2 = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "-", .type = .Minus, .location = null },
-            .expr = prefix_expr2,
-        },
-    });
-
-    _ = try test_tree.addNode(.{
-        .root = .{
-            .statements = &.{ expression_statement, expression_statement2 },
-        },
-    });
-
-    const tree_string = try ast_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(tree_string);
-
-    const test_tree_string = try test_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(test_tree_string);
-
-    try testing.expectEqualStrings(test_tree_string, tree_string);
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
 }
 
 test "Infix Expression" {
-    const input =
-        \\5 + 5;
-        \\5 - 5;
-        \\5 * 5;
-        \\5 / 5;
-        \\5 > 5;
-        \\5 < 5;
-        \\5 == 5;
-        \\5 != 5;
-        \\true == true;
-        \\false == false;
-        \\true != false;
-    ;
-
-    var ast_tree = try parseTree(testing.allocator, input);
-    defer ast_tree.deinit();
-
-    var test_tree = ast.Tree.init(testing.allocator);
-    defer test_tree.deinit();
-
-    const literal_5 = try test_tree.addNode(.{
-        .literal = .{
-            .token = .{
-                .type = .{ .Literal = .Int },
-                .literal = "5",
-                .location = null, // TODO
-            },
-            .value = .{ .int = 5 },
+    const tests = .{
+        .{
+            "5 + 5;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: +
+            \\      literal
+            \\        int: 5
+            \\      literal
+            \\        int: 5
+            \\
+            ,
         },
-    });
-
-    const literal_true = try test_tree.addNode(.{
-        .literal = .{
-            .token = .{
-                .type = .True,
-                .literal = "true",
-                .location = null, // TODO
-            },
-            .value = .{ .boolean = true },
+        .{
+            "5 - 5;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: -
+            \\      literal
+            \\        int: 5
+            \\      literal
+            \\        int: 5
+            \\
         },
-    });
-
-    const literal_false = try test_tree.addNode(.{
-        .literal = .{
-            .token = .{
-                .type = .False,
-                .literal = "false",
-                .location = null, // TODO
-            },
-            .value = .{ .boolean = false },
+        .{
+            "5 * 5;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: *
+            \\      literal
+            \\        int: 5
+            \\      literal
+            \\        int: 5
+            \\
         },
-    });
-
-    const infixes = .{
-        .{ .literal = "+", .type = .Plus, .location = null },
-        .{ .literal = "-", .type = .Minus, .location = null },
-        .{ .literal = "*", .type = .Star, .location = null },
-        .{ .literal = "/", .type = .Slash, .location = null },
-        .{ .literal = ">", .type = .Gt, .location = null },
-        .{ .literal = "<", .type = .Lt, .location = null },
-        .{ .literal = "==", .type = .EqEq, .location = null },
-        .{ .literal = "!=", .type = .NotEq, .location = null },
+        .{
+            "5 / 5;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: /
+            \\      literal
+            \\        int: 5
+            \\      literal
+            \\        int: 5
+            \\
+        },
+        .{
+            "5 > 5;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: >
+            \\      literal
+            \\        int: 5
+            \\      literal
+            \\        int: 5
+            \\
+        },
+        .{
+            "5 < 5;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: <
+            \\      literal
+            \\        int: 5
+            \\      literal
+            \\        int: 5
+            \\
+        },
+        .{
+            "5 == 5;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: ==
+            \\      literal
+            \\        int: 5
+            \\      literal
+            \\        int: 5
+            \\
+        },
+        .{
+            "5 != 5;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: !=
+            \\      literal
+            \\        int: 5
+            \\      literal
+            \\        int: 5
+            \\
+        },
+        .{
+            "true == true;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: ==
+            \\      literal
+            \\        boolean: true
+            \\      literal
+            \\        boolean: true
+            \\
+        },
+        .{
+            "false == false;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: ==
+            \\      literal
+            \\        boolean: false
+            \\      literal
+            \\        boolean: false
+            \\
+        },
+        .{
+            "true != false;",
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: !=
+            \\      literal
+            \\        boolean: true
+            \\      literal
+            \\        boolean: false
+            \\
+        },
     };
 
-    const infix_expr_plus = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[0],
-            .operator = "+",
-            .right = literal_5,
-            .left = literal_5,
-        },
-    });
-
-    const expression_statement_plus = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "+", .type = .Plus, .location = null },
-            .expr = infix_expr_plus,
-        },
-    });
-
-    const infix_expr_minus = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[1],
-            .operator = "-",
-            .right = literal_5,
-            .left = literal_5,
-        },
-    });
-
-    const expression_statement_minus = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "-", .type = .Minus, .location = null },
-            .expr = infix_expr_minus,
-        },
-    });
-
-    const infix_expr_star = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[2],
-            .operator = "*",
-            .right = literal_5,
-            .left = literal_5,
-        },
-    });
-
-    const expression_statement_star = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "*", .type = .Star, .location = null },
-            .expr = infix_expr_star,
-        },
-    });
-
-    const infix_expr_slash = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[3],
-            .operator = "/",
-            .right = literal_5,
-            .left = literal_5,
-        },
-    });
-
-    const expression_statement_slash = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "/", .type = .Slash, .location = null },
-            .expr = infix_expr_slash,
-        },
-    });
-
-    const infix_expr_lt = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[4],
-            .operator = "<",
-            .right = literal_5,
-            .left = literal_5,
-        },
-    });
-
-    const expression_statement_lt = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "<", .type = .Lt, .location = null },
-            .expr = infix_expr_lt,
-        },
-    });
-
-    const infix_expr_gt = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[5],
-            .operator = ">",
-            .right = literal_5,
-            .left = literal_5,
-        },
-    });
-
-    const expression_statement_gt = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = ">", .type = .Gt, .location = null },
-            .expr = infix_expr_gt,
-        },
-    });
-
-    const infix_expr_eqeq = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[6],
-            .operator = "==",
-            .right = literal_5,
-            .left = literal_5,
-        },
-    });
-
-    const expression_statement_eqeq = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "==", .type = .EqEq, .location = null },
-            .expr = infix_expr_eqeq,
-        },
-    });
-
-    const infix_expr_noteq = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[7],
-            .operator = "!=",
-            .right = literal_5,
-            .left = literal_5,
-        },
-    });
-
-    const expression_statement_noteq = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "!=", .type = .NotEq, .location = null },
-            .expr = infix_expr_noteq,
-        },
-    });
-
-    const infix_expr_true = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[6],
-            .operator = "==",
-            .right = literal_true,
-            .left = literal_true,
-        },
-    });
-    const expression_statement_true = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "==", .type = .EqEq, .location = null },
-            .expr = infix_expr_true,
-        },
-    });
-
-    const infix_expr_false = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[6],
-            .operator = "==",
-            .right = literal_false,
-            .left = literal_false,
-        },
-    });
-    const expression_statement_false = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "==", .type = .EqEq, .location = null },
-            .expr = infix_expr_false,
-        },
-    });
-
-    const infix_expr_truefalse = try test_tree.addNode(.{
-        .infix = .{
-            .token = infixes[7],
-            .operator = "!=",
-            .right = literal_false,
-            .left = literal_true,
-        },
-    });
-    const expression_statement_truefalse = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .literal = "!=", .type = .NotEq, .location = null },
-            .expr = infix_expr_truefalse,
-        },
-    });
-
-    _ = try test_tree.addNode(.{
-        .root = .{
-            .statements = &.{
-                expression_statement_plus,
-                expression_statement_minus,
-                expression_statement_star,
-                expression_statement_slash,
-                expression_statement_gt,
-                expression_statement_lt,
-                expression_statement_eqeq,
-                expression_statement_noteq,
-                expression_statement_true,
-                expression_statement_false,
-                expression_statement_truefalse,
-            },
-        },
-    });
-
-    const tree_string = try ast_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(tree_string);
-
-    const test_tree_string = try test_tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(test_tree_string);
-
-    try testing.expectEqualStrings(test_tree_string, tree_string);
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
 }
 
 test "Operator Precedence" {
@@ -1358,311 +1073,89 @@ test "Operator Precedence" {
     };
 
     inline for (tests) |case| {
-        var ast_tree = try parseTree(testing.allocator, case[0]);
-        defer ast_tree.deinit();
-
-        const tree_string = try ast_tree.toString(testing.allocator);
-        defer testing.allocator.free(tree_string);
-
-        try testing.expectEqualStrings(case[1], tree_string);
+        try testTreeString(testing.allocator, case[0], case[1]);
     }
 }
 
 test "Boolean Literal Expression" {
-    const input =
-        \\true;
-        \\false;
-    ;
-
-    var ast_tree = try parseTree(testing.allocator, input);
-    defer ast_tree.deinit();
-
-    var test_tree = ast.Tree.init(testing.allocator);
-    defer test_tree.deinit();
-
-    const true_literal = try test_tree.addNode(.{
-        .literal = .{
-            .token = .{ .literal = "true", .location = null, .type = .True },
-            .value = .{ .boolean = true },
+    const tests = .{
+        .{
+            "true;",
+            \\root
+            \\  expression
+            \\    literal
+            \\      boolean: true
+            \\
+            ,
+            "false;",
+            \\root
+            \\  expression
+            \\    literal
+            \\      boolean: false
+            \\
         },
-    });
+    };
 
-    const false_literal = try test_tree.addNode(.{
-        .literal = .{
-            .token = .{ .literal = "false", .location = null, .type = .False },
-            .value = .{ .boolean = false },
-        },
-    });
-
-    const true_expr = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .type = .True, .location = null, .literal = "true" },
-            .expr = true_literal,
-        },
-    });
-
-    const false_expr = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{ .type = .False, .location = null, .literal = "false" },
-            .expr = false_literal,
-        },
-    });
-
-    _ = try test_tree.addNode(.{
-        .root = .{
-            .statements = &.{ true_expr, false_expr },
-        },
-    });
-
-    const tree_string = try ast_tree.toString(testing.allocator);
-    defer testing.allocator.free(tree_string);
-
-    const test_tree_string = try test_tree.toString(testing.allocator);
-    defer testing.allocator.free(test_tree_string);
-
-    try testing.expectEqualStrings(test_tree_string, tree_string);
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
 }
 
 test "If Expression" {
-    const input =
-        \\input := if (x < y) { x };
-    ;
-
-    var ast_tree = try parseTree(testing.allocator, input);
-    defer ast_tree.deinit();
-
-    var test_tree = ast.Tree.init(testing.allocator);
-    defer test_tree.deinit();
-
-    const ident_input = try test_tree.addNode(.{
-        .ident = .{
-            .value = "input",
-            .token = .{ .location = null, .type = .Ident, .literal = "input" },
+    const tests = .{
+        .{
+            "input := if (x < y) { x };",
+            \\root
+            \\  declare_assign
+            \\    ident
+            \\      ident: input
+            \\    if_
+            \\      infix
+            \\        operator: <
+            \\        ident
+            \\          ident: x
+            \\        ident
+            \\          ident: y
+            \\      block
+            \\        expression
+            \\          ident
+            \\            ident: x
+            \\
         },
-    });
+    };
 
-    const ident_x = try test_tree.addNode(.{
-        .ident = .{
-            .value = "x",
-            .token = .{ .location = null, .type = .Ident, .literal = "x" },
-        },
-    });
-
-    const ident_y = try test_tree.addNode(.{
-        .ident = .{
-            .value = "y",
-            .token = .{ .location = null, .type = .Ident, .literal = "y" },
-        },
-    });
-
-    const condition_expr = try test_tree.addNode(.{
-        .infix = .{
-            .token = .{
-                .location = null,
-                .type = .Ident,
-                .literal = "<",
-            },
-            .left = ident_x,
-            .right = ident_y,
-            .operator = "<",
-        },
-    });
-
-    const ident_x_expression = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{
-                .location = null,
-                .type = .Ident,
-                .literal = "x",
-            },
-            .expr = ident_x,
-        },
-    });
-
-    const consequence_block = try test_tree.addNode(.{
-        .block = .{
-            .token = .{
-                .literal = "{",
-                .location = null,
-                .type = .OpenBrace,
-            },
-            .statements = &.{ident_x_expression},
-        },
-    });
-
-    const if_ = try test_tree.addNode(.{
-        .if_ = .{
-            .token = .{
-                .literal = "if",
-                .type = .If,
-                .location = null,
-            },
-            .condition = condition_expr,
-            .consequence = consequence_block,
-            .alternative = null,
-        },
-    });
-
-    const declare_assign = try test_tree.addNode(.{
-        .declare_assign = .{
-            .ident = ident_input,
-            .token = .{
-                .literal = ":=",
-                .type = .DeclareAssign,
-                .location = null,
-            },
-            .expr = if_,
-        },
-    });
-
-    _ = try test_tree.addNode(.{
-        .root = .{
-            .statements = &.{declare_assign},
-        },
-    });
-
-    const tree_string = try ast_tree.toString(testing.allocator);
-    defer testing.allocator.free(tree_string);
-
-    const test_tree_string = try test_tree.toString(testing.allocator);
-    defer testing.allocator.free(test_tree_string);
-
-    try testing.expectEqualStrings(test_tree_string, tree_string);
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
 }
 test "If-Else Expression" {
-    const input =
-        \\input := if (x < y) { x } else { null };
-    ;
-
-    var ast_tree = try parseTree(testing.allocator, input);
-    defer ast_tree.deinit();
-
-    var test_tree = ast.Tree.init(testing.allocator);
-    defer test_tree.deinit();
-
-    const ident_input = try test_tree.addNode(.{
-        .ident = .{
-            .value = "input",
-            .token = .{ .location = null, .type = .Ident, .literal = "input" },
+    const tests = .{
+        .{
+            "input := if (x < y) { x } else { null };",
+            \\root
+            \\  declare_assign
+            \\    ident
+            \\      ident: input
+            \\    if_
+            \\      infix
+            \\        operator: <
+            \\        ident
+            \\          ident: x
+            \\        ident
+            \\          ident: y
+            \\      block
+            \\        expression
+            \\          ident
+            \\            ident: x
+            \\      block
+            \\        expression
+            \\          literal
+            \\            null: null
+            \\
         },
-    });
+    };
 
-    const ident_x = try test_tree.addNode(.{
-        .ident = .{
-            .value = "x",
-            .token = .{ .location = null, .type = .Ident, .literal = "x" },
-        },
-    });
-
-    const ident_y = try test_tree.addNode(.{
-        .ident = .{
-            .value = "y",
-            .token = .{ .location = null, .type = .Ident, .literal = "y" },
-        },
-    });
-
-    const null_literal = try test_tree.addNode(.{ .literal = .{
-        .token = .{
-            .literal = "null",
-            .type = .Null,
-            .location = null,
-        },
-        .value = .null,
-    } });
-
-    const condition_expr = try test_tree.addNode(.{
-        .infix = .{
-            .token = .{
-                .location = null,
-                .type = .Ident,
-                .literal = "<",
-            },
-            .left = ident_x,
-            .right = ident_y,
-            .operator = "<",
-        },
-    });
-
-    const null_expression = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{
-                .location = null,
-                .type = .Null,
-                .literal = "null",
-            },
-            .expr = null_literal,
-        },
-    });
-
-    const ident_x_expression = try test_tree.addNode(.{
-        .expression = .{
-            .token = .{
-                .location = null,
-                .type = .Ident,
-                .literal = "x",
-            },
-            .expr = ident_x,
-        },
-    });
-
-    const consequence_block = try test_tree.addNode(.{
-        .block = .{
-            .token = .{
-                .literal = "{",
-                .location = null,
-                .type = .OpenBrace,
-            },
-            .statements = &.{ident_x_expression},
-        },
-    });
-
-    const alternative_block = try test_tree.addNode(.{
-        .block = .{
-            .token = .{
-                .literal = "{",
-                .location = null,
-                .type = .OpenBrace,
-            },
-            .statements = &.{null_expression},
-        },
-    });
-
-    const if_ = try test_tree.addNode(.{
-        .if_ = .{
-            .token = .{
-                .literal = "if",
-                .type = .If,
-                .location = null,
-            },
-            .condition = condition_expr,
-            .consequence = consequence_block,
-            .alternative = alternative_block,
-        },
-    });
-
-    const declare_assign = try test_tree.addNode(.{
-        .declare_assign = .{
-            .ident = ident_input,
-            .token = .{
-                .literal = ":=",
-                .type = .DeclareAssign,
-                .location = null,
-            },
-            .expr = if_,
-        },
-    });
-
-    _ = try test_tree.addNode(.{
-        .root = .{
-            .statements = &.{declare_assign},
-        },
-    });
-
-    const tree_string = try ast_tree.toString(testing.allocator);
-    defer testing.allocator.free(tree_string);
-
-    const test_tree_string = try test_tree.toString(testing.allocator);
-    defer testing.allocator.free(test_tree_string);
-
-    try testing.expectEqualStrings(test_tree_string, tree_string);
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
 }
