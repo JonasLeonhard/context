@@ -54,13 +54,13 @@ pub const Parser = struct {
     /// use this for allocations that are cleaned up in Parser.deinit anyways eg. appending to errors, and are not returned externally
     arena: ArenaAllocator,
 
-    pub fn init(alloc: std.mem.Allocator, lex: Lexer) !Parser {
-        var arena = ArenaAllocator.init(alloc);
+    pub fn init(gpa: std.mem.Allocator, lex: Lexer) !Parser {
+        var arena = ArenaAllocator.init(gpa);
         errdefer arena.deinit();
 
-        const errors = ArrayList([]const u8).init(alloc);
-        var prefix_parse_fn_map = std.AutoHashMap(TokenType, PrefixParseFunc).init(alloc); // TODO: can we have a filled map initially or use a different approach?
-        var infix_parse_fn_map = std.AutoHashMap(TokenType, InfixParseFunc).init(alloc);
+        const errors = ArrayList([]const u8).init(gpa);
+        var prefix_parse_fn_map = std.AutoHashMap(TokenType, PrefixParseFunc).init(gpa); // TODO: can we have a filled map initially or use a different approach?
+        var infix_parse_fn_map = std.AutoHashMap(TokenType, InfixParseFunc).init(gpa);
 
         // registerPrefix
         try prefix_parse_fn_map.put(.Ident, parseIdentifier);
@@ -162,8 +162,8 @@ pub const Parser = struct {
         return error.ParserError;
     }
 
-    pub fn parseTree(self: *Parser, alloc: std.mem.Allocator) !ast.Tree {
-        var ast_tree = ast.Tree.init(alloc);
+    pub fn parseTree(self: *Parser, gpa: std.mem.Allocator) !ast.Tree {
+        var ast_tree = ast.Tree.init(gpa);
         errdefer ast_tree.deinit();
 
         var statements = std.ArrayList(ast.NodeIndex).init(ast_tree.arena.allocator());
@@ -535,12 +535,12 @@ pub const Parser = struct {
 };
 
 // ------------- Testing ---------------
-fn testTreeString(alloc: std.mem.Allocator, input_to_parse: []const u8, expected_tree_str: []const u8) !void {
+fn testTreeString(gpa: std.mem.Allocator, input_to_parse: []const u8, expected_tree_str: []const u8) !void {
     const lexer = Lexer.init(input_to_parse);
-    var parser = try Parser.init(alloc, lexer);
+    var parser = try Parser.init(gpa, lexer);
     defer parser.deinit();
 
-    var ast_tree = parser.parseTree(alloc) catch |err| {
+    var ast_tree = parser.parseTree(gpa) catch |err| {
         try parser.checkParserErrors();
         return err;
     };

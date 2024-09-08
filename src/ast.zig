@@ -10,12 +10,12 @@ pub const Tree = struct {
     nodes: ArrayList(Node), // @Performance: zigs compiler uses a MultiArrayList(Node) here
     root: ?NodeIndex,
 
-    pub fn init(alloc: std.mem.Allocator) Tree {
-        const arena = ArenaAllocator.init(alloc);
+    pub fn init(gpa: std.mem.Allocator) Tree {
+        const arena = ArenaAllocator.init(gpa);
 
         return .{
             .arena = arena,
-            .nodes = std.ArrayList(Node).init(alloc),
+            .nodes = std.ArrayList(Node).init(gpa),
             .root = null,
         };
     }
@@ -37,8 +37,8 @@ pub const Tree = struct {
         return node_index;
     }
 
-    pub fn toString(self: *const Tree, alloc: std.mem.Allocator) ![]u8 {
-        var list = std.ArrayList(u8).init(alloc);
+    pub fn toString(self: *const Tree, gpa: std.mem.Allocator) ![]u8 {
+        var list = std.ArrayList(u8).init(gpa);
         errdefer list.deinit();
 
         if (self.root) |root| {
