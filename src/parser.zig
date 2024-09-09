@@ -36,6 +36,7 @@ pub const Parser = struct {
                 .Minus => .Sum,
                 .Slash => .Product,
                 .Star => .Product,
+                .OpenParen => .Call,
                 else => .Lowest,
             };
         }
@@ -83,6 +84,7 @@ pub const Parser = struct {
         try infix_parse_fn_map.put(.NotEq, parseInfixExpression);
         try infix_parse_fn_map.put(.Lt, parseInfixExpression);
         try infix_parse_fn_map.put(.Gt, parseInfixExpression);
+        try infix_parse_fn_map.put(.OpenParen, parseCallExpression);
 
         var parser = Parser{
             .lexer = lex,
@@ -531,6 +533,41 @@ pub const Parser = struct {
                 .right = parsed_right,
             },
         });
+    }
+
+    fn parseCallExpression(self: *Parser, ast_tree: *ast.Tree, function: ast.NodeIndex) !ast.NodeIndex {
+        return ast_tree.addNode(.{
+            .call = .{
+                .token = self.cur_token,
+                .function = function,
+                .arguments = try self.parseCallArguments(ast_tree),
+            },
+        });
+    }
+
+    fn parseCallArguments(self: *Parser, ast_tree: *ast.Tree) ![]ast.NodeIndex {
+        var args = ArrayList(ast.NodeIndex).init(ast_tree.arena.allocator());
+
+        if (self.peekTokenIs(.CloseParen)) {
+            self.nextToken();
+            return args.toOwnedSlice();
+        }
+
+        self.nextToken();
+        try args.append(try self.parseExpression(ast_tree, .Lowest));
+        while (self.peekTokenIs(.Comma)) {
+            self.nextToken();
+            self.nextToken();
+            try args.append(try self.parseExpression(ast_tree, .Lowest));
+        }
+
+        if (!self.expectPeekAndEat(.CloseParen)) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any CloseParen after comma seperated call arguments, found: {any}", .{self.cur_token});
+            try self.errors.append(err_msg);
+            return error.CallArgumentsNotClosed;
+        }
+
+        return args.toOwnedSlice();
     }
 };
 
@@ -1133,6 +1170,98 @@ test "Operator Precedence" {
             \\          boolean: true
             \\
         },
+        .{
+            "a + add(b * c) + d", // (( a + add((b * c))) + d)
+            \\root
+            \\  expression
+            \\    infix
+            \\      operator: +
+            \\      infix
+            \\        operator: +
+            \\        ident
+            \\          ident: a
+            \\        call
+            \\          infix
+            \\            operator: *
+            \\            ident
+            \\              ident: b
+            \\            ident
+            \\              ident: c
+            \\          ident
+            \\            ident: add
+            \\      ident
+            \\        ident: d
+            \\
+        },
+        .{
+            "add(a, b, 1, 2 * 3, 4 + 5, add (6, 7 * 8))", // add(a, b, 1, (2 * 3), (4 + 5), add(6, 7 * 8))
+            \\root
+            \\  expression
+            \\    call
+            \\      ident
+            \\        ident: a
+            \\      ident
+            \\        ident: b
+            \\      literal
+            \\        int: 1
+            \\      infix
+            \\        operator: *
+            \\        literal
+            \\          int: 2
+            \\        literal
+            \\          int: 3
+            \\      infix
+            \\        operator: +
+            \\        literal
+            \\          int: 4
+            \\        literal
+            \\          int: 5
+            \\      call
+            \\        literal
+            \\          int: 6
+            \\        infix
+            \\          operator: *
+            \\          literal
+            \\            int: 7
+            \\          literal
+            \\            int: 8
+            \\        ident
+            \\          ident: add
+            \\      ident
+            \\        ident: add
+            \\
+        },
+        .{
+            "add(a + b + c * d / f + g)", // add((((a + b) + ((c + d) / f)) + g))
+            \\root
+            \\  expression
+            \\    call
+            \\      infix
+            \\        operator: +
+            \\        infix
+            \\          operator: +
+            \\          infix
+            \\            operator: +
+            \\            ident
+            \\              ident: a
+            \\            ident
+            \\              ident: b
+            \\          infix
+            \\            operator: /
+            \\            infix
+            \\              operator: *
+            \\              ident
+            \\                ident: c
+            \\              ident
+            \\                ident: d
+            \\            ident
+            \\              ident: f
+            \\        ident
+            \\          ident: g
+            \\      ident
+            \\        ident: add
+            \\
+        },
     };
 
     inline for (tests) |case| {
@@ -1274,6 +1403,38 @@ test "Function Literal + parameters" {
             \\      ident
             \\        ident: z
             \\      block
+            \\
+        },
+    };
+
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
+}
+
+test "Call Expression" {
+    const tests = .{
+        .{
+            "add(1, 2 * 3, 4 + 5);",
+            \\root
+            \\  expression
+            \\    call
+            \\      literal
+            \\        int: 1
+            \\      infix
+            \\        operator: *
+            \\        literal
+            \\          int: 2
+            \\        literal
+            \\          int: 3
+            \\      infix
+            \\        operator: +
+            \\        literal
+            \\          int: 4
+            \\        literal
+            \\          int: 5
+            \\      ident
+            \\        ident: add
             \\
         },
     };
