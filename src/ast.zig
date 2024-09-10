@@ -4,10 +4,13 @@ const Token = token.Token;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 
+/// Based on Zigs Data oriented design approach explained in these talks
+/// https://www.youtube.com/watch?v=IroPQ150F6c
+/// https://www.youtube.com/watch?v=KOZcJwGdQok&t=2005s
 pub const Tree = struct {
     arena: ArenaAllocator,
     /// The root node is expected to be the last node added to the nodes array list! => tree.nodes.len - 1
-    nodes: ArrayList(Node), // @Performance: zigs compiler uses a MultiArrayList(Node) here
+    nodes: ArrayList(Node), // TODO: SPEED: zigs compiler uses a MultiArrayList(Node) here
     root: ?NodeIndex,
 
     pub fn init(gpa: std.mem.Allocator) Tree {
