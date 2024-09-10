@@ -234,7 +234,7 @@ pub const Parser = struct {
         }
         const expr = try self.parseExpression(ast_tree, .Lowest);
 
-        while (!self.curTokenIs(.Semi)) {
+        if (self.peekTokenIs(.Semi)) {
             self.nextToken();
         }
 
@@ -253,15 +253,16 @@ pub const Parser = struct {
         const return_token = self.cur_token;
         self.nextToken();
 
-        // TODO: were skipping the expressions until we encounter a semi colon;
-        while (!self.curTokenIs(.Semi)) {
+        const expr = try self.parseExpression(ast_tree, .Lowest);
+
+        if (self.peekTokenIs(.Semi)) {
             self.nextToken();
         }
 
         return try ast_tree.addNode(.{
             .return_ = .{
                 .token = return_token,
-                .expr = null, // TODO!
+                .expr = expr,
             },
         });
     }
@@ -601,6 +602,26 @@ test "DeclareAssign Statement" {
             \\      int: 5
             \\
         },
+        .{
+            "y := true;",
+            \\root
+            \\  declare_assign
+            \\    ident
+            \\      ident: y
+            \\    literal
+            \\      boolean: true
+            \\
+        },
+        .{
+            "foobar := y;",
+            \\root
+            \\  declare_assign
+            \\    ident
+            \\      ident: foobar
+            \\    ident
+            \\      ident: y
+            \\
+        },
     };
 
     inline for (tests) |case| {
@@ -609,12 +630,13 @@ test "DeclareAssign Statement" {
 }
 
 test "Return Statement" {
-    // TODO: return expression!
     const tests = .{
         .{
             "return 5;",
             \\root
             \\  return_
+            \\    literal
+            \\      int: 5
             \\
         },
     };
