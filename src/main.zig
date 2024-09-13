@@ -6,11 +6,14 @@ const ast = @import("ast.zig");
 const Tree = ast.Tree;
 const NodeIndex = ast.NodeIndex;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
+const Repl = @import("repl.zig").Repl;
 
-    // TODO
-    _ = alloc;
+pub fn main() !void {
+    var gpa_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa_allocator.deinit();
+    const gpa = gpa_allocator.allocator();
+
+    // REPL
+    const repl = Repl{};
+    try repl.start(gpa);
 }

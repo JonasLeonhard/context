@@ -55,13 +55,13 @@ pub const Parser = struct {
     /// use this for allocations that are cleaned up in Parser.deinit anyways eg. appending to errors, and are not returned externally
     arena: ArenaAllocator,
 
-    pub fn init(gpa: std.mem.Allocator, lex: Lexer) !Parser {
-        var arena = ArenaAllocator.init(gpa);
+    pub fn init(alloc: std.mem.Allocator, lex: Lexer) !Parser {
+        var arena = ArenaAllocator.init(alloc);
         errdefer arena.deinit();
 
-        const errors = ArrayList([]const u8).init(gpa);
-        var prefix_parse_fn_map = std.AutoHashMap(TokenType, PrefixParseFunc).init(gpa); // TODO: can we have a filled map initially or use a different approach?
-        var infix_parse_fn_map = std.AutoHashMap(TokenType, InfixParseFunc).init(gpa);
+        const errors = ArrayList([]const u8).init(alloc);
+        var prefix_parse_fn_map = std.AutoHashMap(TokenType, PrefixParseFunc).init(alloc); // TODO: can we have a filled map initially or use a different approach?
+        var infix_parse_fn_map = std.AutoHashMap(TokenType, InfixParseFunc).init(alloc);
 
         // registerPrefix
         try prefix_parse_fn_map.put(.Ident, parseIdentifier);
@@ -151,7 +151,7 @@ pub const Parser = struct {
         return Precedence.fromTokenType(self.cur_token.type);
     }
 
-    pub fn checkParserErrors(self: Parser) !void {
+    pub fn checkParserErrors(self: Parser) void {
         if (self.errors.items.len == 0) {
             return;
         }
@@ -160,12 +160,10 @@ pub const Parser = struct {
         for (self.errors.items) |err| {
             std.debug.print("parser error: {s}\n", .{err});
         }
-
-        return error.ParserError;
     }
 
-    pub fn parseTree(self: *Parser, gpa: std.mem.Allocator) !ast.Tree {
-        var ast_tree = ast.Tree.init(gpa);
+    pub fn parseTree(self: *Parser, alloc: std.mem.Allocator) !ast.Tree {
+        var ast_tree = ast.Tree.init(alloc);
         errdefer ast_tree.deinit();
 
         var statements = std.ArrayList(ast.NodeIndex).init(ast_tree.arena.allocator());
@@ -573,13 +571,13 @@ pub const Parser = struct {
 };
 
 // ------------- Testing ---------------
-fn testTreeString(gpa: std.mem.Allocator, input_to_parse: []const u8, expected_tree_str: []const u8) !void {
+fn testTreeString(alloc: std.mem.Allocator, input_to_parse: []const u8, expected_tree_str: []const u8) !void {
     const lexer = Lexer.init(input_to_parse);
-    var parser = try Parser.init(gpa, lexer);
+    var parser = try Parser.init(alloc, lexer);
     defer parser.deinit();
 
-    var ast_tree = parser.parseTree(gpa) catch |err| {
-        try parser.checkParserErrors();
+    var ast_tree = parser.parseTree(alloc) catch |err| {
+        parser.checkParserErrors();
         return err;
     };
     defer ast_tree.deinit();
@@ -594,33 +592,66 @@ test "DeclareAssign Statement" {
     const tests = .{
         .{
             "x := 5;",
-            \\root
-            \\  declare_assign
-            \\    ident
-            \\      ident: x
-            \\    literal
-            \\      int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "declare_assign",
+            \\        "identifier": {
+            \\          "type": "ident",
+            \\          "value": "x"
+            \\        },
+            \\        "expression": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "y := true;",
-            \\root
-            \\  declare_assign
-            \\    ident
-            \\      ident: y
-            \\    literal
-            \\      boolean: true
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "declare_assign",
+            \\        "identifier": {
+            \\          "type": "ident",
+            \\          "value": "y"
+            \\        },
+            \\        "expression": {
+            \\          "type": "literal",
+            \\          "value": true
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "foobar := y;",
-            \\root
-            \\  declare_assign
-            \\    ident
-            \\      ident: foobar
-            \\    ident
-            \\      ident: y
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "declare_assign",
+            \\        "identifier": {
+            \\          "type": "ident",
+            \\          "value": "foobar"
+            \\        },
+            \\        "expression": {
+            \\          "type": "ident",
+            \\          "value": "y"
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -633,11 +664,20 @@ test "Return Statement" {
     const tests = .{
         .{
             "return 5;",
-            \\root
-            \\  return_
-            \\    literal
-            \\      int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "return_",
+            \\        "expression": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -650,11 +690,20 @@ test "Statement Expression" {
     const tests = .{
         .{
             "foobar;",
-            \\root
-            \\  expression
-            \\    ident
-            \\      ident: foobar
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "ident",
+            \\          "value": "foobar"
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -667,11 +716,20 @@ test "Integer Literal Expression" {
     const tests = .{
         .{
             "5;",
-            \\root
-            \\  expression
-            \\    literal
-            \\      int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -684,23 +742,45 @@ test "Prefix Expression" {
     const tests = .{
         .{
             "!5;",
-            \\root
-            \\  expression
-            \\    prefix
-            \\      op: !
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "prefix",
+            \\          "operator": "!",
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "-5;",
-            \\root
-            \\  expression
-            \\    prefix
-            \\      op: -
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "prefix",
+            \\          "operator": "-",
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -713,136 +793,279 @@ test "Infix Expression" {
     const tests = .{
         .{
             "5 + 5;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: +
-            \\      literal
-            \\        int: 5
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
             ,
         },
         .{
             "5 - 5;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: -
-            \\      literal
-            \\        int: 5
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "-",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "5 * 5;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: *
-            \\      literal
-            \\        int: 5
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "*",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "5 / 5;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: /
-            \\      literal
-            \\        int: 5
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "/",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "5 > 5;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: >
-            \\      literal
-            \\        int: 5
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": ">",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "5 < 5;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: <
-            \\      literal
-            \\        int: 5
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "<",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "5 == 5;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: ==
-            \\      literal
-            \\        int: 5
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "==",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "5 != 5;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: !=
-            \\      literal
-            \\        int: 5
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "!=",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "true == true;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: ==
-            \\      literal
-            \\        boolean: true
-            \\      literal
-            \\        boolean: true
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "==",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": true
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": true
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "false == false;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: ==
-            \\      literal
-            \\        boolean: false
-            \\      literal
-            \\        boolean: false
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "==",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": false
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": false
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "true != false;",
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: !=
-            \\      literal
-            \\        boolean: true
-            \\      literal
-            \\        boolean: false
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "!=",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": true
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": false
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -855,434 +1078,901 @@ test "Operator Precedence" {
     const tests = .{
         .{
             "-a * b", // ((-a) * b)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: *
-            \\      prefix
-            \\        op: -
-            \\        ident
-            \\          ident: a
-            \\      ident
-            \\        ident: b
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "*",
+            \\          "left": {
+            \\            "type": "prefix",
+            \\            "operator": "-",
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "b"
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "!-a", // (!(-a))
-            \\root
-            \\  expression
-            \\    prefix
-            \\      op: !
-            \\      prefix
-            \\        op: -
-            \\        ident
-            \\          ident: a
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "prefix",
+            \\          "operator": "!",
+            \\          "right": {
+            \\            "type": "prefix",
+            \\            "operator": "-",
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            }
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "a + b + c", // ((a + b) + c)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: +
-            \\      infix
-            \\        operator: +
-            \\        ident
-            \\          ident: a
-            \\        ident
-            \\          ident: b
-            \\      ident
-            \\        ident: c
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            },
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "b"
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "c"
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "a * b * c", // ((a * b) * c)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: *
-            \\      infix
-            \\        operator: *
-            \\        ident
-            \\          ident: a
-            \\        ident
-            \\          ident: b
-            \\      ident
-            \\        ident: c
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "*",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            },
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "b"
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "c"
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "a * b / c", // ((a * b) / c)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: /
-            \\      infix
-            \\        operator: *
-            \\        ident
-            \\          ident: a
-            \\        ident
-            \\          ident: b
-            \\      ident
-            \\        ident: c
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "/",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            },
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "b"
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "c"
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "a + b / c", // (a + (b / c))
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: +
-            \\      ident
-            \\        ident: a
-            \\      infix
-            \\        operator: /
-            \\        ident
-            \\          ident: b
-            \\        ident
-            \\          ident: c
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "ident",
+            \\            "value": "a"
+            \\          },
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "/",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "b"
+            \\            },
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "c"
+            \\            }
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "a + b * c + d / e - f", // (((a + (b * c)) + (d / e)) - f)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: -
-            \\      infix
-            \\        operator: +
-            \\        infix
-            \\          operator: +
-            \\          ident
-            \\            ident: a
-            \\          infix
-            \\            operator: *
-            \\            ident
-            \\              ident: b
-            \\            ident
-            \\              ident: c
-            \\        infix
-            \\          operator: /
-            \\          ident
-            \\            ident: d
-            \\          ident
-            \\            ident: e
-            \\      ident
-            \\        ident: f
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "-",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "infix",
+            \\              "operator": "+",
+            \\              "left": {
+            \\                "type": "ident",
+            \\                "value": "a"
+            \\              },
+            \\              "right": {
+            \\                "type": "infix",
+            \\                "operator": "*",
+            \\                "left": {
+            \\                  "type": "ident",
+            \\                  "value": "b"
+            \\                },
+            \\                "right": {
+            \\                  "type": "ident",
+            \\                  "value": "c"
+            \\                }
+            \\              }
+            \\            },
+            \\            "right": {
+            \\              "type": "infix",
+            \\              "operator": "/",
+            \\              "left": {
+            \\                "type": "ident",
+            \\                "value": "d"
+            \\              },
+            \\              "right": {
+            \\                "type": "ident",
+            \\                "value": "e"
+            \\              }
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "f"
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "3 + 4; -5 * 5", // (3 + 4)((-5) * 5)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: +
-            \\      literal
-            \\        int: 3
-            \\      literal
-            \\        int: 4
-            \\  expression
-            \\    infix
-            \\      operator: *
-            \\      prefix
-            \\        op: -
-            \\        literal
-            \\          int: 5
-            \\      literal
-            \\        int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 3
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 4
+            \\          }
+            \\        }
+            \\      },
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "*",
+            \\          "left": {
+            \\            "type": "prefix",
+            \\            "operator": "-",
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "5 > 4 == 3 < 4", // ((5 > 4) == (3 < 4))
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: ==
-            \\      infix
-            \\        operator: >
-            \\        literal
-            \\          int: 5
-            \\        literal
-            \\          int: 4
-            \\      infix
-            \\        operator: <
-            \\        literal
-            \\          int: 3
-            \\        literal
-            \\          int: 4
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "==",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": ">",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 4
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "<",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 3
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 4
+            \\            }
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "5 < 4 != 3 > 4", // ((5 < 4) != (3 > 4))
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: !=
-            \\      infix
-            \\        operator: <
-            \\        literal
-            \\          int: 5
-            \\        literal
-            \\          int: 4
-            \\      infix
-            \\        operator: >
-            \\        literal
-            \\          int: 3
-            \\        literal
-            \\          int: 4
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "!=",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "<",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 4
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": ">",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 3
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 4
+            \\            }
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "3 + 4 * 5 == 3 * 1 + 4 * 5", // (( 3 + (4 * 5)) == ((3 * 1) + (4 * 5)))
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: ==
-            \\      infix
-            \\        operator: +
-            \\        literal
-            \\          int: 3
-            \\        infix
-            \\          operator: *
-            \\          literal
-            \\            int: 4
-            \\          literal
-            \\            int: 5
-            \\      infix
-            \\        operator: +
-            \\        infix
-            \\          operator: *
-            \\          literal
-            \\            int: 3
-            \\          literal
-            \\            int: 1
-            \\        infix
-            \\          operator: *
-            \\          literal
-            \\            int: 4
-            \\          literal
-            \\            int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "==",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 3
+            \\            },
+            \\            "right": {
+            \\              "type": "infix",
+            \\              "operator": "*",
+            \\              "left": {
+            \\                "type": "literal",
+            \\                "value": 4
+            \\              },
+            \\              "right": {
+            \\                "type": "literal",
+            \\                "value": 5
+            \\              }
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "infix",
+            \\              "operator": "*",
+            \\              "left": {
+            \\                "type": "literal",
+            \\                "value": 3
+            \\              },
+            \\              "right": {
+            \\                "type": "literal",
+            \\                "value": 1
+            \\              }
+            \\            },
+            \\            "right": {
+            \\              "type": "infix",
+            \\              "operator": "*",
+            \\              "left": {
+            \\                "type": "literal",
+            \\                "value": 4
+            \\              },
+            \\              "right": {
+            \\                "type": "literal",
+            \\                "value": 5
+            \\              }
+            \\            }
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "true", // true
-            \\root
-            \\  expression
-            \\    literal
-            \\      boolean: true
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "literal",
+            \\          "value": true
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "false", // false
-            \\root
-            \\  expression
-            \\    literal
-            \\      boolean: false
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "literal",
+            \\          "value": false
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "3 > 5 == false", // ((3 > 5) == false)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: ==
-            \\      infix
-            \\        operator: >
-            \\        literal
-            \\          int: 3
-            \\        literal
-            \\          int: 5
-            \\      literal
-            \\        boolean: false
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "==",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": ">",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 3
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": false
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "3 < 5 == true", // ((3 < 5) == true)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: ==
-            \\      infix
-            \\        operator: <
-            \\        literal
-            \\          int: 3
-            \\        literal
-            \\          int: 5
-            \\      literal
-            \\        boolean: true
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "==",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "<",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 3
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": true
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "1 + (2 + 3) + 4", // ((1 + (2 + 3)) + 4)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: +
-            \\      infix
-            \\        operator: +
-            \\        literal
-            \\          int: 1
-            \\        infix
-            \\          operator: +
-            \\          literal
-            \\            int: 2
-            \\          literal
-            \\            int: 3
-            \\      literal
-            \\        int: 4
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 1
+            \\            },
+            \\            "right": {
+            \\              "type": "infix",
+            \\              "operator": "+",
+            \\              "left": {
+            \\                "type": "literal",
+            \\                "value": 2
+            \\              },
+            \\              "right": {
+            \\                "type": "literal",
+            \\                "value": 3
+            \\              }
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 4
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "(5 + 5) * 2", // ((5 + 5) * 2)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: *
-            \\      infix
-            \\        operator: +
-            \\        literal
-            \\          int: 5
-            \\        literal
-            \\          int: 5
-            \\      literal
-            \\        int: 2
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "*",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 2
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "2 / (5 + 5)", // (2 / (5 + 5))
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: /
-            \\      literal
-            \\        int: 2
-            \\      infix
-            \\        operator: +
-            \\        literal
-            \\          int: 5
-            \\        literal
-            \\          int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "/",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 2
+            \\          },
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "-(5 + 5)", // (-(5 + 5))
-            \\root
-            \\  expression
-            \\    prefix
-            \\      op: -
-            \\      infix
-            \\        operator: +
-            \\        literal
-            \\          int: 5
-            \\        literal
-            \\          int: 5
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "prefix",
+            \\          "operator": "-",
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "!(true == true)", // (!(true == true))
-            \\root
-            \\  expression
-            \\    prefix
-            \\      op: !
-            \\      infix
-            \\        operator: ==
-            \\        literal
-            \\          boolean: true
-            \\        literal
-            \\          boolean: true
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "prefix",
+            \\          "operator": "!",
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "==",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": true
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": true
+            \\            }
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "a + add(b * c) + d", // (( a + add((b * c))) + d)
-            \\root
-            \\  expression
-            \\    infix
-            \\      operator: +
-            \\      infix
-            \\        operator: +
-            \\        ident
-            \\          ident: a
-            \\        call
-            \\          infix
-            \\            operator: *
-            \\            ident
-            \\              ident: b
-            \\            ident
-            \\              ident: c
-            \\          ident
-            \\            ident: add
-            \\      ident
-            \\        ident: d
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            },
+            \\            "right": {
+            \\              "type": "call",
+            \\              "function": {
+            \\                "type": "ident",
+            \\                "value": "add"
+            \\              },
+            \\              "arguments": [
+            \\                {
+            \\                  "type": "infix",
+            \\                  "operator": "*",
+            \\                  "left": {
+            \\                    "type": "ident",
+            \\                    "value": "b"
+            \\                  },
+            \\                  "right": {
+            \\                    "type": "ident",
+            \\                    "value": "c"
+            \\                  }
+            \\                }
+            \\              ]
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "d"
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "add(a, b, 1, 2 * 3, 4 + 5, add (6, 7 * 8))", // add(a, b, 1, (2 * 3), (4 + 5), add(6, 7 * 8))
-            \\root
-            \\  expression
-            \\    call
-            \\      ident
-            \\        ident: a
-            \\      ident
-            \\        ident: b
-            \\      literal
-            \\        int: 1
-            \\      infix
-            \\        operator: *
-            \\        literal
-            \\          int: 2
-            \\        literal
-            \\          int: 3
-            \\      infix
-            \\        operator: +
-            \\        literal
-            \\          int: 4
-            \\        literal
-            \\          int: 5
-            \\      call
-            \\        literal
-            \\          int: 6
-            \\        infix
-            \\          operator: *
-            \\          literal
-            \\            int: 7
-            \\          literal
-            \\            int: 8
-            \\        ident
-            \\          ident: add
-            \\      ident
-            \\        ident: add
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "call",
+            \\          "function": {
+            \\            "type": "ident",
+            \\            "value": "add"
+            \\          },
+            \\          "arguments": [
+            \\            {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            },
+            \\            {
+            \\              "type": "ident",
+            \\              "value": "b"
+            \\            },
+            \\            {
+            \\              "type": "literal",
+            \\              "value": 1
+            \\            },
+            \\            {
+            \\              "type": "infix",
+            \\              "operator": "*",
+            \\              "left": {
+            \\                "type": "literal",
+            \\                "value": 2
+            \\              },
+            \\              "right": {
+            \\                "type": "literal",
+            \\                "value": 3
+            \\              }
+            \\            },
+            \\            {
+            \\              "type": "infix",
+            \\              "operator": "+",
+            \\              "left": {
+            \\                "type": "literal",
+            \\                "value": 4
+            \\              },
+            \\              "right": {
+            \\                "type": "literal",
+            \\                "value": 5
+            \\              }
+            \\            },
+            \\            {
+            \\              "type": "call",
+            \\              "function": {
+            \\                "type": "ident",
+            \\                "value": "add"
+            \\              },
+            \\              "arguments": [
+            \\                {
+            \\                  "type": "literal",
+            \\                  "value": 6
+            \\                },
+            \\                {
+            \\                  "type": "infix",
+            \\                  "operator": "*",
+            \\                  "left": {
+            \\                    "type": "literal",
+            \\                    "value": 7
+            \\                  },
+            \\                  "right": {
+            \\                    "type": "literal",
+            \\                    "value": 8
+            \\                  }
+            \\                }
+            \\              ]
+            \\            }
+            \\          ]
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "add(a + b + c * d / f + g)", // add((((a + b) + ((c + d) / f)) + g))
-            \\root
-            \\  expression
-            \\    call
-            \\      infix
-            \\        operator: +
-            \\        infix
-            \\          operator: +
-            \\          infix
-            \\            operator: +
-            \\            ident
-            \\              ident: a
-            \\            ident
-            \\              ident: b
-            \\          infix
-            \\            operator: /
-            \\            infix
-            \\              operator: *
-            \\              ident
-            \\                ident: c
-            \\              ident
-            \\                ident: d
-            \\            ident
-            \\              ident: f
-            \\        ident
-            \\          ident: g
-            \\      ident
-            \\        ident: add
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "call",
+            \\          "function": {
+            \\            "type": "ident",
+            \\            "value": "add"
+            \\          },
+            \\          "arguments": [
+            \\            {
+            \\              "type": "infix",
+            \\              "operator": "+",
+            \\              "left": {
+            \\                "type": "infix",
+            \\                "operator": "+",
+            \\                "left": {
+            \\                  "type": "infix",
+            \\                  "operator": "+",
+            \\                  "left": {
+            \\                    "type": "ident",
+            \\                    "value": "a"
+            \\                  },
+            \\                  "right": {
+            \\                    "type": "ident",
+            \\                    "value": "b"
+            \\                  }
+            \\                },
+            \\                "right": {
+            \\                  "type": "infix",
+            \\                  "operator": "/",
+            \\                  "left": {
+            \\                    "type": "infix",
+            \\                    "operator": "*",
+            \\                    "left": {
+            \\                      "type": "ident",
+            \\                      "value": "c"
+            \\                    },
+            \\                    "right": {
+            \\                      "type": "ident",
+            \\                      "value": "d"
+            \\                    }
+            \\                  },
+            \\                  "right": {
+            \\                    "type": "ident",
+            \\                    "value": "f"
+            \\                  }
+            \\                }
+            \\              },
+            \\              "right": {
+            \\                "type": "ident",
+            \\                "value": "g"
+            \\              }
+            \\            }
+            \\          ]
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -1295,18 +1985,48 @@ test "Boolean Literal Expression" {
     const tests = .{
         .{
             "true;",
-            \\root
-            \\  expression
-            \\    literal
-            \\      boolean: true
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "literal",
+            \\          "value": true
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
             ,
             "false;",
-            \\root
-            \\  expression
-            \\    literal
-            \\      boolean: false
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "infix",
+            \\          "operator": "*",
+            \\          "left": {
+            \\            "type": "prefix",
+            \\            "operator": "-",
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "b"
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -1319,22 +2039,47 @@ test "If Expression" {
     const tests = .{
         .{
             "input := if (x < y) { x };",
-            \\root
-            \\  declare_assign
-            \\    ident
-            \\      ident: input
-            \\    if_
-            \\      infix
-            \\        operator: <
-            \\        ident
-            \\          ident: x
-            \\        ident
-            \\          ident: y
-            \\      block
-            \\        expression
-            \\          ident
-            \\            ident: x
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "declare_assign",
+            \\        "identifier": {
+            \\          "type": "ident",
+            \\          "value": "input"
+            \\        },
+            \\        "expression": {
+            \\          "type": "if_",
+            \\          "condition": {
+            \\            "type": "infix",
+            \\            "operator": "<",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "x"
+            \\            },
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "y"
+            \\            }
+            \\          },
+            \\          "consequence": {
+            \\            "type": "block",
+            \\            "statements": [
+            \\              {
+            \\                "type": "expression",
+            \\                "expression": {
+            \\                  "type": "ident",
+            \\                  "value": "x"
+            \\                }
+            \\              }
+            \\            ]
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -1346,26 +2091,59 @@ test "If-Else Expression" {
     const tests = .{
         .{
             "input := if (x < y) { x } else { null };",
-            \\root
-            \\  declare_assign
-            \\    ident
-            \\      ident: input
-            \\    if_
-            \\      infix
-            \\        operator: <
-            \\        ident
-            \\          ident: x
-            \\        ident
-            \\          ident: y
-            \\      block
-            \\        expression
-            \\          ident
-            \\            ident: x
-            \\      block
-            \\        expression
-            \\          literal
-            \\            null: null
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "declare_assign",
+            \\        "identifier": {
+            \\          "type": "ident",
+            \\          "value": "input"
+            \\        },
+            \\        "expression": {
+            \\          "type": "if_",
+            \\          "condition": {
+            \\            "type": "infix",
+            \\            "operator": "<",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "x"
+            \\            },
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "y"
+            \\            }
+            \\          },
+            \\          "consequence": {
+            \\            "type": "block",
+            \\            "statements": [
+            \\              {
+            \\                "type": "expression",
+            \\                "expression": {
+            \\                  "type": "ident",
+            \\                  "value": "x"
+            \\                }
+            \\              }
+            \\            ]
+            \\          },
+            \\          "alternative": {
+            \\            "type": "block",
+            \\            "statements": [
+            \\              {
+            \\                "type": "expression",
+            \\                "expression": {
+            \\                  "type": "literal",
+            \\                  "value": null
+            \\                }
+            \\              }
+            \\            ]
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -1378,54 +2156,130 @@ test "Function Literal + parameters" {
     const tests = .{
         .{
             "fn(x, y) { x + y; };",
-            \\root
-            \\  expression
-            \\    function
-            \\      ident
-            \\        ident: x
-            \\      ident
-            \\        ident: y
-            \\      block
-            \\        expression
-            \\          infix
-            \\            operator: +
-            \\            ident
-            \\              ident: x
-            \\            ident
-            \\              ident: y
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "function",
+            \\          "parameters": [
+            \\            {
+            \\              "type": "ident",
+            \\              "value": "x"
+            \\            },
+            \\            {
+            \\              "type": "ident",
+            \\              "value": "y"
+            \\            }
+            \\          ],
+            \\          "body": {
+            \\            "type": "block",
+            \\            "statements": [
+            \\              {
+            \\                "type": "expression",
+            \\                "expression": {
+            \\                  "type": "infix",
+            \\                  "operator": "+",
+            \\                  "left": {
+            \\                    "type": "ident",
+            \\                    "value": "x"
+            \\                  },
+            \\                  "right": {
+            \\                    "type": "ident",
+            \\                    "value": "y"
+            \\                  }
+            \\                }
+            \\              }
+            \\            ]
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "fn() {};",
-            \\root
-            \\  expression
-            \\    function
-            \\      block
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "function",
+            \\          "parameters": [],
+            \\          "body": {
+            \\            "type": "block",
+            \\            "statements": []
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "fn(x) {};",
-            \\root
-            \\  expression
-            \\    function
-            \\      ident
-            \\        ident: x
-            \\      block
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "function",
+            \\          "parameters": [
+            \\            {
+            \\              "type": "ident",
+            \\              "value": "x"
+            \\            }
+            \\          ],
+            \\          "body": {
+            \\            "type": "block",
+            \\            "statements": []
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
         .{
             "fn(x, y, z) {};",
-            \\root
-            \\  expression
-            \\    function
-            \\      ident
-            \\        ident: x
-            \\      ident
-            \\        ident: y
-            \\      ident
-            \\        ident: z
-            \\      block
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "function",
+            \\          "parameters": [
+            \\            {
+            \\              "type": "ident",
+            \\              "value": "x"
+            \\            },
+            \\            {
+            \\              "type": "ident",
+            \\              "value": "y"
+            \\            },
+            \\            {
+            \\              "type": "ident",
+            \\              "value": "z"
+            \\            }
+            \\          ],
+            \\          "body": {
+            \\            "type": "block",
+            \\            "statements": []
+            \\          }
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 
@@ -1438,26 +2292,53 @@ test "Call Expression" {
     const tests = .{
         .{
             "add(1, 2 * 3, 4 + 5);",
-            \\root
-            \\  expression
-            \\    call
-            \\      literal
-            \\        int: 1
-            \\      infix
-            \\        operator: *
-            \\        literal
-            \\          int: 2
-            \\        literal
-            \\          int: 3
-            \\      infix
-            \\        operator: +
-            \\        literal
-            \\          int: 4
-            \\        literal
-            \\          int: 5
-            \\      ident
-            \\        ident: add
-            \\
+            \\{
+            \\  "root": {
+            \\    "type": "root",
+            \\    "statements": [
+            \\      {
+            \\        "type": "expression",
+            \\        "expression": {
+            \\          "type": "call",
+            \\          "function": {
+            \\            "type": "ident",
+            \\            "value": "add"
+            \\          },
+            \\          "arguments": [
+            \\            {
+            \\              "type": "literal",
+            \\              "value": 1
+            \\            },
+            \\            {
+            \\              "type": "infix",
+            \\              "operator": "*",
+            \\              "left": {
+            \\                "type": "literal",
+            \\                "value": 2
+            \\              },
+            \\              "right": {
+            \\                "type": "literal",
+            \\                "value": 3
+            \\              }
+            \\            },
+            \\            {
+            \\              "type": "infix",
+            \\              "operator": "+",
+            \\              "left": {
+            \\                "type": "literal",
+            \\                "value": 4
+            \\              },
+            \\              "right": {
+            \\                "type": "literal",
+            \\                "value": 5
+            \\              }
+            \\            }
+            \\          ]
+            \\        }
+            \\      }
+            \\    ]
+            \\  }
+            \\}
         },
     };
 

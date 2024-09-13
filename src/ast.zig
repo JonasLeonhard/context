@@ -13,12 +13,12 @@ pub const Tree = struct {
     nodes: ArrayList(Node), // TODO: SPEED: zigs compiler uses a MultiArrayList(Node) here
     root: ?NodeIndex,
 
-    pub fn init(gpa: std.mem.Allocator) Tree {
-        const arena = ArenaAllocator.init(gpa);
+    pub fn init(alloc: std.mem.Allocator) Tree {
+        const arena = ArenaAllocator.init(alloc);
 
         return .{
             .arena = arena,
-            .nodes = std.ArrayList(Node).init(gpa),
+            .nodes = std.ArrayList(Node).init(alloc),
             .root = null,
         };
     }
@@ -40,97 +40,118 @@ pub const Tree = struct {
         return node_index;
     }
 
-    pub fn toString(self: *const Tree, gpa: std.mem.Allocator) ![]u8 {
-        var list = std.ArrayList(u8).init(gpa);
+    pub fn toString(self: *const Tree, alloc: std.mem.Allocator) ![]u8 {
+        var list = std.ArrayList(u8).init(alloc);
         errdefer list.deinit();
 
-        if (self.root) |root| {
-            try self.printNode(root, 0, list.writer());
-        }
+        try self.toJson(alloc, list.writer());
 
         return list.toOwnedSlice();
     }
 
-    fn printNode(self: *const Tree, node_index: NodeIndex, indent: u32, writer: anytype) !void {
-        const node = self.nodes.items[node_index];
+    pub fn toJson(self: *const Tree, alloc: std.mem.Allocator, writer: anytype) !void {
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        const arena_alloc = arena.allocator();
 
-        try writer.writeByteNTimes(' ', indent * 2);
-        try writer.print("{s}\n", .{@tagName(node)});
+        var json_tree = std.json.Value{
+            .object = std.json.ObjectMap.init(arena_alloc),
+        };
+
+        if (self.root) |root| {
+            try json_tree.object.put("root", try self.nodeToJson(root, arena_alloc));
+        }
+
+        try std.json.stringify(json_tree, .{ .whitespace = .indent_2 }, writer);
+    }
+
+    fn nodeToJson(self: *const Tree, node_index: NodeIndex, alloc: std.mem.Allocator) !std.json.Value {
+        const node = self.nodes.items[node_index];
+        var json_node = std.json.Value{
+            .object = std.json.ObjectMap.init(alloc),
+        };
+        errdefer json_node.object.deinit();
+
+        try json_node.object.put("type", std.json.Value{ .string = @tagName(node) });
 
         switch (node) {
-            .root => {
-                for (node.root.statements) |stmt| {
-                    try self.printNode(stmt, indent + 1, writer);
+            .root => |root| {
+                var statements = std.json.Value{ .array = std.json.Array.init(alloc) };
+                for (root.statements) |stmt| {
+                    try statements.array.append(try self.nodeToJson(stmt, alloc));
+                }
+                try json_node.object.put("statements", statements);
+            },
+            .return_ => |ret| {
+                if (ret.expr) |expr| {
+                    try json_node.object.put("expression", try self.nodeToJson(expr, alloc));
                 }
             },
-            // ---------- Statements ---------
-            .return_ => {
-                if (node.return_.expr) |expr| {
-                    try self.printNode(expr, indent + 1, writer);
+            .declare_assign => |decl| {
+                try json_node.object.put("identifier", try self.nodeToJson(decl.ident, alloc));
+                if (decl.expr) |expr| {
+                    try json_node.object.put("expression", try self.nodeToJson(expr, alloc));
                 }
             },
-            .declare_assign => {
-                try self.printNode(node.declare_assign.ident, indent + 1, writer);
-                if (node.declare_assign.expr) |expr| {
-                    try self.printNode(expr, indent + 1, writer);
+            .expression => |expr| {
+                if (expr.expr) |e| {
+                    try json_node.object.put("expression", try self.nodeToJson(e, alloc));
                 }
             },
-            .expression => {
-                if (node.expression.expr) |expr| {
-                    try self.printNode(expr, indent + 1, writer);
+            .block => |block| {
+                var statements = std.json.Value{ .array = std.json.Array.init(alloc) };
+                for (block.statements) |stmt| {
+                    try statements.array.append(try self.nodeToJson(stmt, alloc));
+                }
+                try json_node.object.put("statements", statements);
+            },
+            .ident => |ident| {
+                try json_node.object.put("value", std.json.Value{ .string = ident.value });
+            },
+            .infix => |infix| {
+                try json_node.object.put("operator", std.json.Value{ .string = infix.operator });
+                try json_node.object.put("left", try self.nodeToJson(infix.left, alloc));
+                try json_node.object.put("right", try self.nodeToJson(infix.right, alloc));
+            },
+            .prefix => |prefix| {
+                try json_node.object.put("operator", std.json.Value{ .string = prefix.operator });
+                try json_node.object.put("right", try self.nodeToJson(prefix.right, alloc));
+            },
+            .literal => |lit| {
+                switch (lit.value) {
+                    .int => |value| try json_node.object.put("value", std.json.Value{ .integer = value }),
+                    .boolean => |value| try json_node.object.put("value", std.json.Value{ .bool = value }),
+                    .null => try json_node.object.put("value", std.json.Value{ .null = {} }),
+                    .float => |value| try json_node.object.put("value", std.json.Value{ .float = value }),
+                    .string => |value| try json_node.object.put("value", std.json.Value{ .string = value }),
                 }
             },
-            .block => {
-                for (node.block.statements) |stmt| {
-                    try self.printNode(stmt, indent + 1, writer);
+            .if_ => |if_node| {
+                try json_node.object.put("condition", try self.nodeToJson(if_node.condition, alloc));
+                try json_node.object.put("consequence", try self.nodeToJson(if_node.consequence, alloc));
+                if (if_node.alternative) |alt| {
+                    try json_node.object.put("alternative", try self.nodeToJson(alt, alloc));
                 }
             },
-            // ---------- Expressions --------
-            .ident => {
-                try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("ident: {s}\n", .{node.ident.value});
-            },
-            .infix => {
-                try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("operator: {s}\n", .{node.infix.operator});
-                try self.printNode(node.infix.left, indent + 1, writer);
-                try self.printNode(node.infix.right, indent + 1, writer);
-            },
-            .prefix => {
-                try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                try writer.print("op: {s}\n", .{node.prefix.operator});
-                try self.printNode(node.prefix.right, indent + 1, writer);
-            },
-            .function => {
-                for (node.function.parameters) |param| {
-                    try self.printNode(param, indent + 1, writer);
+            .function => |func| {
+                var parameters = std.json.Value{ .array = std.json.Array.init(alloc) };
+                for (func.parameters) |param| {
+                    try parameters.array.append(try self.nodeToJson(param, alloc));
                 }
-                try self.printNode(node.function.body, indent + 1, writer);
+                try json_node.object.put("parameters", parameters);
+                try json_node.object.put("body", try self.nodeToJson(func.body, alloc));
             },
-            .call => {
-                for (node.call.arguments) |argument| {
-                    try self.printNode(argument, indent + 1, writer);
+            .call => |call| {
+                try json_node.object.put("function", try self.nodeToJson(call.function, alloc));
+                var arguments = std.json.Value{ .array = std.json.Array.init(alloc) };
+                for (call.arguments) |arg| {
+                    try arguments.array.append(try self.nodeToJson(arg, alloc));
                 }
-                try self.printNode(node.call.function, indent + 1, writer);
-            },
-            .literal => {
-                try writer.writeByteNTimes(' ', (indent + 1) * 2);
-                switch (node.literal.value) {
-                    .int => |value| try writer.print("int: {d}\n", .{value}),
-                    .boolean => |value| try writer.print("boolean: {any}\n", .{value}),
-                    .null => |_| try writer.print("null: null\n", .{}),
-                    .float => |value| try writer.print("float: {d}\n", .{value}),
-                    .string => |value| try writer.print("string: {s}\n", .{value}),
-                }
-            },
-            .if_ => {
-                try self.printNode(node.if_.condition, indent + 1, writer);
-                try self.printNode(node.if_.consequence, indent + 1, writer);
-                if (node.if_.alternative) |alternative| {
-                    try self.printNode(alternative, indent + 1, writer);
-                }
+                try json_node.object.put("arguments", arguments);
             },
         }
+
+        return json_node;
     }
 };
 
@@ -333,17 +354,32 @@ test "AstTree" {
     // std.debug.print("tree_string {s}", .{tree_string});
 
     const expected_output =
-        \\root
-        \\  declare_assign
-        \\    ident
-        \\      ident: x
-        \\    infix
-        \\      operator: +
-        \\      literal
-        \\        int: 5
-        \\      literal
-        \\        int: 3
-        \\
+        \\{
+        \\  "root": {
+        \\    "type": "root",
+        \\    "statements": [
+        \\      {
+        \\        "type": "declare_assign",
+        \\        "identifier": {
+        \\          "type": "ident",
+        \\          "value": "x"
+        \\        },
+        \\        "expression": {
+        \\          "type": "infix",
+        \\          "operator": "+",
+        \\          "left": {
+        \\            "type": "literal",
+        \\            "value": 5
+        \\          },
+        \\          "right": {
+        \\            "type": "literal",
+        \\            "value": 3
+        \\          }
+        \\        }
+        \\      }
+        \\    ]
+        \\  }
+        \\}
     ;
 
     try std.testing.expectEqualStrings(expected_output, tree_string);
