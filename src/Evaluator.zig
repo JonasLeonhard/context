@@ -6,8 +6,10 @@ const ast = @import("ast.zig");
 
 pub const Object = union(enum) {
     integer: Integer,
-    booleal: Boolean,
-    null: Null,
+    boolean: *const Boolean,
+    null: *const Null,
+
+    testing: Integer, // TODO: remove
 
     const Integer = struct {
         value: i64,
@@ -18,7 +20,29 @@ pub const Object = union(enum) {
     };
 
     const Null = struct {};
+
+    pub fn toString(self: Object, alloc: std.mem.Allocator) ![]const u8 {
+        switch (self) {
+            .integer => |int| {
+                return try std.fmt.allocPrint(alloc, "{d}", .{int.value});
+            },
+            .boolean => |boolean| {
+                return try std.fmt.allocPrint(alloc, "{any}", .{boolean.value});
+            },
+            .null => {
+                return try std.fmt.allocPrint(alloc, "{any}", .{null});
+            },
+            else => {
+                return "toString not implemented yet";
+            },
+        }
+    }
 };
+
+// To avoid copies of true and false values, we create them once.
+const True = &Object.Boolean{ .value = true };
+const False = &Object.Boolean{ .value = false };
+const Null_Global = &Object.Null{};
 
 const Evaluator = @This();
 
@@ -26,9 +50,12 @@ const errors = error{
     EvalNodeTypeNotImplementedYet,
     EvalLiteralValueNotImplementedYet,
     EvalStatmentsNoStatmentsGiven,
+    EvalPrefixExpressionOperatorNotImlementedYet,
+    EvalBangOperatorExpressionNotImplementedYet,
+    EvalMinusPrefixOperatorExpressionNotImplementedYet,
 };
 
-fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
+pub fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
     switch (node) {
         .root => |root| {
             return evalStatements(ast_tree, root.statements);
@@ -37,7 +64,11 @@ fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
             if (expression.expr) |expr| {
                 return eval(ast_tree, ast_tree.nodes.items[expr]);
             }
-            return Object{ .null = .{} };
+            return Object{ .null = Null_Global };
+        },
+        .prefix => |prefix| {
+            const right = try eval(ast_tree, ast_tree.nodes.items[prefix.right]);
+            return evalPrefixExpression(prefix.operator, right);
         },
         .literal => |literal| {
             switch (literal.value) {
@@ -46,12 +77,20 @@ fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
                         .integer = .{ .value = int_val },
                     };
                 },
+                .boolean => |bool_val| {
+                    return Object{ .boolean = nativeBoolToBooleanObject(bool_val) };
+                },
+                .null => {
+                    return Object{ .null = Null_Global };
+                },
                 else => {
+                    std.debug.print("EvalLiteralValueNotImplementedYet for {any}\n", .{literal});
                     return errors.EvalLiteralValueNotImplementedYet;
                 },
             }
         },
         else => {
+            std.debug.print("EvalNodeTypeNotImplementedYet for {any}\n", .{node});
             return errors.EvalNodeTypeNotImplementedYet;
         },
     }
@@ -63,6 +102,53 @@ fn evalStatements(ast_tree: *ast.Tree, statements: []const ast.NodeIndex) !Objec
     }
 
     return errors.EvalStatmentsNoStatmentsGiven;
+}
+
+fn evalPrefixExpression(operator: []const u8, right: Object) !Object {
+    if (std.mem.eql(u8, operator, "!")) {
+        return try evalBangOperatorExpression(right);
+    }
+
+    if (std.mem.eql(u8, operator, "-")) {
+        return try evalMinusPrefixOperatorExpression(right);
+    }
+
+    return error.EvalPrefixExpressionOperatorNotImlementedYet;
+}
+
+fn evalBangOperatorExpression(right: Object) !Object {
+    switch (right) {
+        .boolean => |boolean| {
+            if (boolean.value) {
+                return Object{ .boolean = False };
+            }
+            return Object{ .boolean = True };
+        },
+        .null => {
+            return Object{ .boolean = True };
+        },
+        .integer => {
+            return Object{ .boolean = False };
+        },
+        else => {
+            return errors.EvalBangOperatorExpressionNotImplementedYet;
+        },
+    }
+}
+
+fn evalMinusPrefixOperatorExpression(right: Object) !Object {
+    switch (right) {
+        .integer => |integer| {
+            return Object{ .integer = .{ .value = -integer.value } };
+        },
+        else => {
+            return errors.EvalMinusPrefixOperatorExpressionNotImplementedYet;
+        },
+    }
+}
+
+fn nativeBoolToBooleanObject(value: bool) *const Object.Boolean {
+    return if (value) True else False;
 }
 
 fn testEvalToTree(alloc: std.mem.Allocator, input: []const u8) !Object {
@@ -90,6 +176,17 @@ fn testIntegerObject(expected: i64, actual: Object) !void {
     }
 }
 
+fn testBooleanObject(expected: bool, actual: Object) !void {
+    switch (actual) {
+        .boolean => |bool_obj| {
+            try testing.expectEqual(expected, bool_obj.value);
+        },
+        else => {
+            return error.NotAnBooleanObject;
+        },
+    }
+}
+
 test "Eval Integer Expression" {
     const tests = .{
         .{
@@ -100,10 +197,70 @@ test "Eval Integer Expression" {
             "10",
             10,
         },
+        .{
+            "-5",
+            -5,
+        },
+        .{
+            "-10",
+            -10,
+        },
     };
 
     inline for (tests) |test_item| {
         const evaluated_ast = try testEvalToTree(testing.allocator, test_item[0]);
         try testIntegerObject(test_item[1], evaluated_ast);
+    }
+}
+
+test "Eval Boolean Expression" {
+    const tests = .{
+        .{
+            "true",
+            true,
+        },
+        .{
+            "false",
+            false,
+        },
+    };
+
+    inline for (tests) |test_item| {
+        const evaluated_ast = try testEvalToTree(testing.allocator, test_item[0]);
+        try testBooleanObject(test_item[1], evaluated_ast);
+    }
+}
+
+test "Bang Operator" {
+    const tests = .{
+        .{
+            "!true",
+            false,
+        },
+        .{
+            "!false",
+            true,
+        },
+        .{
+            "!5",
+            false,
+        },
+        .{
+            "!!true",
+            true,
+        },
+        .{
+            "!!false",
+            false,
+        },
+        .{
+            "!!5",
+            true,
+        },
+    };
+
+    inline for (tests) |test_item| {
+        const evaluated_ast = try testEvalToTree(testing.allocator, test_item[0]);
+        try testBooleanObject(test_item[1], evaluated_ast);
     }
 }

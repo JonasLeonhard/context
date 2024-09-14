@@ -12,5 +12,7 @@ pub fn main() !void {
 
     // REPL
     const repl = Repl{};
-    try repl.start_eval_to_ast(gpa);
+    // TODO: switch the eval type here...
+    // try repl.start_eval_to_ast(gpa);
+    try repl.start_eval(gpa);
 }
