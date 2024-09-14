@@ -2,7 +2,7 @@ const std = @import("std");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 
-/// Read-Parse-Print-Loop
+/// Read-Parse-Print-Loop, a tree walking interpreter
 const Repl = @This();
 
 /// Start repl to evaluate to ast
