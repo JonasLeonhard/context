@@ -1,12 +1,9 @@
 const std = @import("std");
 const token = @import("token.zig");
-const Lexer = @import("lexer.zig").Lexer;
-const Parser = @import("parser.zig").Parser;
-const ast = @import("ast.zig");
-const Tree = ast.Tree;
-const NodeIndex = ast.NodeIndex;
+const Lexer = @import("Lexer.zig");
+const Parser = @import("Parser.zig");
 
-const Repl = @import("repl.zig").Repl;
+const Repl = @import("Repl.zig");
 
 pub fn main() !void {
     var gpa_allocator = std.heap.GeneralPurposeAllocator(.{}){};

@@ -1,6 +1,6 @@
 comptime {
     _ = @import("ast.zig");
-    _ = @import("lexer.zig");
-    _ = @import("parser.zig");
-    _ = @import("repl.zig");
+    _ = @import("Lexer.zig");
+    _ = @import("Parser.zig");
+    _ = @import("Repl.zig");
 }
