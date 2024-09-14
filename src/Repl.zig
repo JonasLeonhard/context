@@ -5,7 +5,8 @@ const Parser = @import("Parser.zig");
 /// Read-Parse-Print-Loop
 const Repl = @This();
 
-pub fn start(self: Repl, alloc: std.mem.Allocator) !void {
+/// Start repl to evaluate to ast
+pub fn start_eval_to_ast(self: Repl, alloc: std.mem.Allocator) !void {
     _ = self; // TODO
     const stdout = std.io.getStdOut();
     const tty_config = std.io.tty.detectConfig(stdout);

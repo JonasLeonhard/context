@@ -12,5 +12,5 @@ pub fn main() !void {
 
     // REPL
     const repl = Repl{};
-    try repl.start(gpa);
+    try repl.start_eval_to_ast(gpa);
 }
