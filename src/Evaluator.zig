@@ -158,6 +158,22 @@ fn evalIntegerInfixExpression(operator: []const u8, left: Object.Integer, right:
         return Object{ .integer = .{ .value = @divExact(left.value, right.value) } }; // TODO: is divExact correct here? or @divFloor / @divTrunc
     }
 
+    if (std.mem.eql(u8, "<", operator)) {
+        return Object{ .boolean = nativeBoolToBooleanObject(left.value < right.value) };
+    }
+
+    if (std.mem.eql(u8, ">", operator)) {
+        return Object{ .boolean = nativeBoolToBooleanObject(left.value > right.value) };
+    }
+
+    if (std.mem.eql(u8, "==", operator)) {
+        return Object{ .boolean = nativeBoolToBooleanObject(left.value == right.value) };
+    }
+
+    if (std.mem.eql(u8, "!=", operator)) {
+        return Object{ .boolean = nativeBoolToBooleanObject(left.value != right.value) };
+    }
+
     return errors.EvalIntegerInfixExpressionUndefined;
 }
 
@@ -311,6 +327,38 @@ test "Eval Boolean Expression" {
         .{
             "false",
             false,
+        },
+        .{
+            "1 < 2",
+            true,
+        },
+        .{
+            "1 > 2",
+            false,
+        },
+        .{
+            "1 < 1",
+            false,
+        },
+        .{
+            "1 > 1",
+            false,
+        },
+        .{
+            "1 == 1",
+            true,
+        },
+        .{
+            "1 != 1",
+            false,
+        },
+        .{
+            "1 == 2",
+            false,
+        },
+        .{
+            "1 != 2",
+            true,
         },
     };
 
