@@ -124,21 +124,19 @@ fn evalPrefixExpression(operator: []const u8, right: Object) !Object {
 }
 
 fn evalInfixExpression(operator: []const u8, left: Object, right: Object) !Object {
-    switch (left) {
-        .integer => |l_int| {
-            switch (right) {
-                .integer => |r_int| {
-                    return evalIntegerInfixExpression(operator, l_int, r_int);
-                },
-                else => {
-                    return errors.EvalInfixExpressionNotImplemented;
-                },
-            }
-        },
-        else => {
-            return errors.EvalInfixExpressionNotImplemented;
-        },
+    if (left == .integer and right == .integer) {
+        return evalIntegerInfixExpression(operator, left.integer, right.integer);
     }
+
+    if (std.mem.eql(u8, operator, "==")) {
+        return Object{ .boolean = nativeBoolToBooleanObject(std.meta.eql(left, right)) };
+    }
+
+    if (std.mem.eql(u8, operator, "!=")) {
+        return Object{ .boolean = nativeBoolToBooleanObject(!std.meta.eql(left, right)) };
+    }
+
+    return errors.EvalInfixExpressionNotImplemented;
 }
 
 fn evalIntegerInfixExpression(operator: []const u8, left: Object.Integer, right: Object.Integer) !Object {
@@ -360,11 +358,50 @@ test "Eval Boolean Expression" {
             "1 != 2",
             true,
         },
+        .{
+            "true == true",
+            true,
+        },
+        .{
+            "false == false",
+            true,
+        },
+        .{
+            "true == false",
+            false,
+        },
+        .{
+            "true != false",
+            true,
+        },
+        .{
+            "false != true",
+            true,
+        },
+        .{
+            "(1 < 2) == true",
+            true,
+        },
+        .{
+            "(1 < 2) == false",
+            false,
+        },
+        .{
+            "(1 > 2) == true",
+            false,
+        },
+        .{
+            "(1 > 2) == false",
+            true,
+        },
     };
 
     inline for (tests) |test_item| {
         const evaluated_ast = try testEvalToTree(testing.allocator, test_item[0]);
-        try testBooleanObject(test_item[1], evaluated_ast);
+        testBooleanObject(test_item[1], evaluated_ast) catch |err| {
+            std.debug.print("\nfailed at comparing: {s} with {any}\n", .{ test_item[0], evaluated_ast });
+            return err;
+        };
     }
 }
 
