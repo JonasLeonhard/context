@@ -53,6 +53,8 @@ const errors = error{
     EvalPrefixExpressionOperatorNotImlementedYet,
     EvalBangOperatorExpressionNotImplementedYet,
     EvalMinusPrefixOperatorExpressionNotImplementedYet,
+    EvalInfixExpressionNotImplemented,
+    EvalIntegerInfixExpressionUndefined,
 };
 
 pub fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
@@ -69,6 +71,11 @@ pub fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
         .prefix => |prefix| {
             const right = try eval(ast_tree, ast_tree.nodes.items[prefix.right]);
             return evalPrefixExpression(prefix.operator, right);
+        },
+        .infix => |infix| {
+            const left = try eval(ast_tree, ast_tree.nodes.items[infix.left]);
+            const right = try eval(ast_tree, ast_tree.nodes.items[infix.right]);
+            return try evalInfixExpression(infix.operator, left, right);
         },
         .literal => |literal| {
             switch (literal.value) {
@@ -114,6 +121,44 @@ fn evalPrefixExpression(operator: []const u8, right: Object) !Object {
     }
 
     return error.EvalPrefixExpressionOperatorNotImlementedYet;
+}
+
+fn evalInfixExpression(operator: []const u8, left: Object, right: Object) !Object {
+    switch (left) {
+        .integer => |l_int| {
+            switch (right) {
+                .integer => |r_int| {
+                    return evalIntegerInfixExpression(operator, l_int, r_int);
+                },
+                else => {
+                    return errors.EvalInfixExpressionNotImplemented;
+                },
+            }
+        },
+        else => {
+            return errors.EvalInfixExpressionNotImplemented;
+        },
+    }
+}
+
+fn evalIntegerInfixExpression(operator: []const u8, left: Object.Integer, right: Object.Integer) !Object {
+    if (std.mem.eql(u8, "+", operator)) {
+        return Object{ .integer = .{ .value = left.value + right.value } };
+    }
+
+    if (std.mem.eql(u8, "-", operator)) {
+        return Object{ .integer = .{ .value = left.value - right.value } };
+    }
+
+    if (std.mem.eql(u8, "*", operator)) {
+        return Object{ .integer = .{ .value = left.value * right.value } };
+    }
+
+    if (std.mem.eql(u8, "/", operator)) {
+        return Object{ .integer = .{ .value = @divExact(left.value, right.value) } }; // TODO: is divExact correct here? or @divFloor / @divTrunc
+    }
+
+    return errors.EvalIntegerInfixExpressionUndefined;
 }
 
 fn evalBangOperatorExpression(right: Object) !Object {
@@ -204,6 +249,50 @@ test "Eval Integer Expression" {
         .{
             "-10",
             -10,
+        },
+        .{
+            "5 + 5 + 5 + 5 - 10",
+            10,
+        },
+        .{
+            "2 * 2 * 2 * 2 * 2",
+            32,
+        },
+        .{
+            "-50 + 100 + -50",
+            0,
+        },
+        .{
+            "5 * 2 + 10",
+            20,
+        },
+        .{
+            "5 + 2 * 10",
+            25,
+        },
+        .{
+            "20 + 2 * -10",
+            0,
+        },
+        .{
+            "50 / 2 * 2 + 10",
+            60,
+        },
+        .{
+            "2 * (5 + 10)",
+            30,
+        },
+        .{
+            "3 * 3 * 3 + 10",
+            37,
+        },
+        .{
+            "3 * (3 * 3) + 10",
+            37,
+        },
+        .{
+            "(5 + 10 * 2 + 15 / 3) * 2 + -10",
+            50,
         },
     };
 
