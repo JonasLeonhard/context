@@ -77,6 +77,12 @@ pub fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
             const right = try eval(ast_tree, ast_tree.nodes.items[infix.right]);
             return try evalInfixExpression(infix.operator, left, right);
         },
+        .block => |block| {
+            return try evalStatements(ast_tree, block.statements);
+        },
+        .if_ => |if_| {
+            return try evalIfExpression(ast_tree, if_);
+        },
         .literal => |literal| {
             switch (literal.value) {
                 .int => |int_val| {
@@ -109,6 +115,32 @@ fn evalStatements(ast_tree: *ast.Tree, statements: []const ast.NodeIndex) !Objec
     }
 
     return errors.EvalStatmentsNoStatmentsGiven;
+}
+
+fn evalIfExpression(ast_tree: *ast.Tree, if_: ast.Node.If) !Object {
+    const condition = try eval(ast_tree, ast_tree.nodes.items[if_.condition]);
+
+    if (isTruthy(condition)) {
+        return eval(ast_tree, ast_tree.nodes.items[if_.consequence]);
+    } else if (if_.alternative) |alternative| {
+        return eval(ast_tree, ast_tree.nodes.items[alternative]);
+    } else {
+        return Object{ .null = Null_Global };
+    }
+}
+
+fn isTruthy(obj: Object) bool {
+    switch (obj) {
+        .null => {
+            return false;
+        },
+        .boolean => |boolean| {
+            return boolean.value;
+        },
+        else => {
+            return true;
+        },
+    }
 }
 
 fn evalPrefixExpression(operator: []const u8, right: Object) !Object {
@@ -210,7 +242,7 @@ fn nativeBoolToBooleanObject(value: bool) *const Object.Boolean {
     return if (value) True else False;
 }
 
-fn testEvalToTree(alloc: std.mem.Allocator, input: []const u8) !Object {
+fn testEvalToObject(alloc: std.mem.Allocator, input: []const u8) !Object {
     const lexer = Lexer.init(input);
     var parser = try Parser.init(alloc, lexer);
     defer parser.deinit();
@@ -231,6 +263,17 @@ fn testIntegerObject(expected: i64, actual: Object) !void {
         },
         else => {
             return error.NotAnIntegerObject;
+        },
+    }
+}
+
+fn testNullObject(actual: Object) !void {
+    switch (actual) {
+        .null => {
+            return; // We are a null object!
+        },
+        else => {
+            return error.NotANullObject;
         },
     }
 }
@@ -311,7 +354,7 @@ test "Eval Integer Expression" {
     };
 
     inline for (tests) |test_item| {
-        const evaluated_ast = try testEvalToTree(testing.allocator, test_item[0]);
+        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
         try testIntegerObject(test_item[1], evaluated_ast);
     }
 }
@@ -397,7 +440,7 @@ test "Eval Boolean Expression" {
     };
 
     inline for (tests) |test_item| {
-        const evaluated_ast = try testEvalToTree(testing.allocator, test_item[0]);
+        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
         testBooleanObject(test_item[1], evaluated_ast) catch |err| {
             std.debug.print("\nfailed at comparing: {s} with {any}\n", .{ test_item[0], evaluated_ast });
             return err;
@@ -434,7 +477,57 @@ test "Bang Operator" {
     };
 
     inline for (tests) |test_item| {
-        const evaluated_ast = try testEvalToTree(testing.allocator, test_item[0]);
+        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
         try testBooleanObject(test_item[1], evaluated_ast);
+    }
+}
+
+test "Eval If Else Expression" {
+    const tests = .{
+        .{
+            "if (true) { 10 }",
+            10,
+        },
+        .{
+            "if (false) { 10 }",
+            null,
+        },
+        .{
+            "if (1) { 10 }",
+            10,
+        },
+        .{
+            "if (1 < 2) { 10 }",
+            10,
+        },
+        .{
+            "if (1 > 2) { 10 }",
+            null,
+        },
+        .{
+            "if (1 > 2) { 10 } else { 20 }",
+            20,
+        },
+        .{
+            "if (1 < 2) { 10 } else { 20 }",
+            10,
+        },
+    };
+
+    inline for (tests) |test_item| {
+        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
+
+        switch (@TypeOf(test_item[1])) {
+            comptime_int => {
+                try testIntegerObject(test_item[1], evaluated_ast);
+            },
+            @TypeOf(null) => {
+                try testNullObject(evaluated_ast);
+            },
+            else => {
+                std.debug.print("{any}", .{@TypeOf(test_item[1])});
+                return error.TestEvalIfExpressionTypeNotImplemented;
+            },
+        }
     }
 }
