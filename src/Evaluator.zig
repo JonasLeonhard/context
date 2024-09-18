@@ -8,6 +8,7 @@ pub const Object = union(enum) {
     integer: Integer,
     boolean: *const Boolean,
     null: *const Null,
+    return_: Return,
 
     testing: Integer, // TODO: remove
 
@@ -18,6 +19,8 @@ pub const Object = union(enum) {
     const Boolean = struct {
         value: bool,
     };
+
+    const Return = struct { value: *const Object };
 
     const Null = struct {};
 
@@ -31,6 +34,9 @@ pub const Object = union(enum) {
             },
             .null => {
                 return try std.fmt.allocPrint(alloc, "{any}", .{null});
+            },
+            .return_ => |return_| {
+                return try return_.value.toString(alloc);
             },
             else => {
                 return "toString not implemented yet";
@@ -60,11 +66,11 @@ const errors = error{
 pub fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
     switch (node) {
         .root => |root| {
-            return evalStatements(ast_tree, root.statements);
+            return try evalProgram(ast_tree, root.statements);
         },
         .expression => |expression| {
             if (expression.expr) |expr| {
-                return eval(ast_tree, ast_tree.nodes.items[expr]);
+                return try eval(ast_tree, ast_tree.nodes.items[expr]);
             }
             return Object{ .null = Null_Global };
         },
@@ -78,10 +84,17 @@ pub fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
             return try evalInfixExpression(infix.operator, left, right);
         },
         .block => |block| {
-            return try evalStatements(ast_tree, block.statements);
+            return try evalBlockStatment(ast_tree, block);
         },
         .if_ => |if_| {
             return try evalIfExpression(ast_tree, if_);
+        },
+        .return_ => |return_| {
+            if (return_.expr) |expr| {
+                const value = try eval(ast_tree, ast_tree.nodes.items[expr]);
+                return Object{ .return_ = .{ .value = &value } };
+            }
+            return Object{ .null = Null_Global };
         },
         .literal => |literal| {
             switch (literal.value) {
@@ -109,12 +122,31 @@ pub fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
     }
 }
 
-fn evalStatements(ast_tree: *ast.Tree, statements: []const ast.NodeIndex) !Object {
+fn evalProgram(ast_tree: *ast.Tree, statements: []const ast.NodeIndex) !Object {
+    var result: Object = Object{ .null = Null_Global };
     for (statements) |statement| {
-        return try eval(ast_tree, ast_tree.nodes.items[statement]);
+        result = try eval(ast_tree, ast_tree.nodes.items[statement]);
+
+        if (result == .return_) {
+            return result.return_.value.*;
+        }
     }
 
-    return errors.EvalStatmentsNoStatmentsGiven;
+    return result;
+}
+
+fn evalBlockStatment(ast_tree: *ast.Tree, block: ast.Node.Block) !Object {
+    var result: Object = Object{ .null = Null_Global };
+
+    for (block.statements) |statement| {
+        result = try eval(ast_tree, ast_tree.nodes.items[statement]);
+
+        if (result == .return_) {
+            return Object{ .return_ = result.return_ };
+        }
+    }
+
+    return result;
 }
 
 fn evalIfExpression(ast_tree: *ast.Tree, if_: ast.Node.If) !Object {
@@ -529,5 +561,42 @@ test "Eval If Else Expression" {
                 return error.TestEvalIfExpressionTypeNotImplemented;
             },
         }
+    }
+}
+
+test "Return Statements" {
+    const tests = .{
+        .{
+            "return 10;",
+            10,
+        },
+        .{
+            "return 10; 9;",
+            10,
+        },
+        .{
+            "return 2 * 5; 9;",
+            10,
+        },
+        .{
+            "9; return 2 * 5; 9;",
+            10,
+        },
+        .{
+            \\if (10 > 1) {
+            \\  if (10 > 1) {
+            \\    return 10;
+            \\  }
+            \\  return 1;
+            \\}
+            ,
+            10,
+        },
+    };
+
+    inline for (tests) |test_item| {
+        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
+
+        try testIntegerObject(test_item[1], evaluated_ast);
     }
 }
