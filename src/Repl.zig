@@ -2,6 +2,7 @@ const std = @import("std");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const Evaluator = @import("Evaluator.zig");
+const Environment = @import("Environment.zig");
 const ast = @import("ast.zig");
 
 /// Read-Parse-Print-Loop, a tree walking interpreter
@@ -69,6 +70,9 @@ pub fn start_eval(self: *Repl, alloc: std.mem.Allocator) !void {
     try stdout.writer().print(": \n", .{});
 
     const stdin = std.io.getStdIn().reader();
+    var env = Environment.init(alloc);
+    defer env.deinit();
+
     while (true) {
         const user_input = try stdin.readUntilDelimiterAlloc(alloc, '\n', 1024);
         defer alloc.free(user_input);
@@ -90,7 +94,7 @@ pub fn start_eval(self: *Repl, alloc: std.mem.Allocator) !void {
 
         if (ast_tree.root) |root| {
             const root_node: ast.Node = ast_tree.nodes.items[root];
-            const evaluated = try self.evaluator.eval(&ast_tree, root_node);
+            const evaluated = try self.evaluator.eval(&ast_tree, &env, root_node);
             const eval_to_str = try evaluated.toString(alloc);
             defer alloc.free(eval_to_str);
 
