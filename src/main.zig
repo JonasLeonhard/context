@@ -11,7 +11,7 @@ pub fn main() !void {
     const gpa = gpa_allocator.allocator();
 
     // REPL
-    const repl = Repl{};
+    var repl = Repl.init(gpa);
     // TODO: switch the eval type here...
     // try repl.start_eval_to_ast(gpa);
     try repl.start_eval(gpa);

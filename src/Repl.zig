@@ -7,6 +7,18 @@ const ast = @import("ast.zig");
 /// Read-Parse-Print-Loop, a tree walking interpreter
 const Repl = @This();
 
+evaluator: Evaluator,
+
+pub fn init(alloc: std.mem.Allocator) Repl {
+    return Repl{
+        .evaluator = Evaluator.init(alloc),
+    };
+}
+
+pub fn deinit(self: Repl) void {
+    self.evaluator.deinit();
+}
+
 /// Start repl to evaluate to ast
 pub fn start_eval_to_ast(self: Repl, alloc: std.mem.Allocator) !void {
     _ = self; // TODO
@@ -47,8 +59,7 @@ pub fn start_eval_to_ast(self: Repl, alloc: std.mem.Allocator) !void {
     }
 }
 
-pub fn start_eval(self: Repl, alloc: std.mem.Allocator) !void {
-    _ = self;
+pub fn start_eval(self: *Repl, alloc: std.mem.Allocator) !void {
     const stdout = std.io.getStdOut();
     const tty_config = std.io.tty.detectConfig(stdout);
 
@@ -79,7 +90,7 @@ pub fn start_eval(self: Repl, alloc: std.mem.Allocator) !void {
 
         if (ast_tree.root) |root| {
             const root_node: ast.Node = ast_tree.nodes.items[root];
-            const evaluated = try Evaluator.eval(&ast_tree, root_node);
+            const evaluated = try self.evaluator.eval(&ast_tree, root_node);
             const eval_to_str = try evaluated.toString(alloc);
             defer alloc.free(eval_to_str);
 

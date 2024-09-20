@@ -9,6 +9,7 @@ pub const Object = union(enum) {
     boolean: *const Boolean,
     null: *const Null,
     return_: Return,
+    error_: Error,
 
     testing: Integer, // TODO: remove
 
@@ -20,7 +21,13 @@ pub const Object = union(enum) {
         value: bool,
     };
 
-    const Return = struct { value: *const Object };
+    const Return = struct {
+        value: *const Object,
+    };
+
+    const Error = struct {
+        message: []const u8,
+    };
 
     const Null = struct {};
 
@@ -32,11 +39,14 @@ pub const Object = union(enum) {
             .boolean => |boolean| {
                 return try std.fmt.allocPrint(alloc, "{any}", .{boolean.value});
             },
-            .null => {
-                return try std.fmt.allocPrint(alloc, "{any}", .{null});
-            },
             .return_ => |return_| {
                 return try return_.value.toString(alloc);
+            },
+            .error_ => |error_| {
+                return try std.fmt.allocPrint(alloc, "ERROR: {s}", .{error_.message});
+            },
+            .null => {
+                return try std.fmt.allocPrint(alloc, "{any}", .{null});
             },
             else => {
                 return "toString not implemented yet";
@@ -52,6 +62,8 @@ const Null_Global = &Object.Null{};
 
 const Evaluator = @This();
 
+arena: std.heap.ArenaAllocator,
+
 const errors = error{
     EvalNodeTypeNotImplementedYet,
     EvalLiteralValueNotImplementedYet,
@@ -61,37 +73,65 @@ const errors = error{
     EvalMinusPrefixOperatorExpressionNotImplementedYet,
     EvalInfixExpressionNotImplemented,
     EvalIntegerInfixExpressionUndefined,
-};
+} || std.fmt.AllocPrintError;
 
-pub fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
+pub fn init(alloc: std.mem.Allocator) Evaluator {
+    return Evaluator{
+        .arena = std.heap.ArenaAllocator.init(alloc),
+    };
+}
+
+pub fn deinit(self: Evaluator) void {
+    self.arena.deinit();
+}
+
+pub fn eval(self: *Evaluator, ast_tree: *ast.Tree, node: ast.Node) errors!Object {
     switch (node) {
         .root => |root| {
-            return try evalProgram(ast_tree, root.statements);
+            return try self.evalProgram(ast_tree, root.statements);
         },
         .expression => |expression| {
             if (expression.expr) |expr| {
-                return try eval(ast_tree, ast_tree.nodes.items[expr]);
+                return try self.eval(ast_tree, ast_tree.nodes.items[expr]);
             }
             return Object{ .null = Null_Global };
         },
         .prefix => |prefix| {
-            const right = try eval(ast_tree, ast_tree.nodes.items[prefix.right]);
-            return evalPrefixExpression(prefix.operator, right);
+            const right = try self.eval(ast_tree, ast_tree.nodes.items[prefix.right]);
+
+            if (right == .error_) {
+                return right;
+            }
+
+            return self.evalPrefixExpression(prefix.operator, right);
         },
         .infix => |infix| {
-            const left = try eval(ast_tree, ast_tree.nodes.items[infix.left]);
-            const right = try eval(ast_tree, ast_tree.nodes.items[infix.right]);
-            return try evalInfixExpression(infix.operator, left, right);
+            const left = try self.eval(ast_tree, ast_tree.nodes.items[infix.left]);
+            if (left == .error_) {
+                return left;
+            }
+
+            const right = try self.eval(ast_tree, ast_tree.nodes.items[infix.right]);
+            if (right == .error_) {
+                return right;
+            }
+
+            return try evalInfixExpression(self, infix.operator, left, right);
         },
         .block => |block| {
-            return try evalBlockStatment(ast_tree, block);
+            return try self.evalBlockStatment(ast_tree, block);
         },
         .if_ => |if_| {
-            return try evalIfExpression(ast_tree, if_);
+            return try self.evalIfExpression(ast_tree, if_);
         },
         .return_ => |return_| {
             if (return_.expr) |expr| {
-                const value = try eval(ast_tree, ast_tree.nodes.items[expr]);
+                const value = try self.eval(ast_tree, ast_tree.nodes.items[expr]);
+
+                if (value == .error_) {
+                    return value;
+                }
+
                 return Object{ .return_ = .{ .value = &value } };
             }
             return Object{ .null = Null_Global };
@@ -122,40 +162,46 @@ pub fn eval(ast_tree: *ast.Tree, node: ast.Node) errors!Object {
     }
 }
 
-fn evalProgram(ast_tree: *ast.Tree, statements: []const ast.NodeIndex) !Object {
+fn evalProgram(self: *Evaluator, ast_tree: *ast.Tree, statements: []const ast.NodeIndex) !Object {
     var result: Object = Object{ .null = Null_Global };
     for (statements) |statement| {
-        result = try eval(ast_tree, ast_tree.nodes.items[statement]);
+        result = try self.eval(ast_tree, ast_tree.nodes.items[statement]);
 
         if (result == .return_) {
             return result.return_.value.*;
         }
-    }
-
-    return result;
-}
-
-fn evalBlockStatment(ast_tree: *ast.Tree, block: ast.Node.Block) !Object {
-    var result: Object = Object{ .null = Null_Global };
-
-    for (block.statements) |statement| {
-        result = try eval(ast_tree, ast_tree.nodes.items[statement]);
-
-        if (result == .return_) {
-            return Object{ .return_ = result.return_ };
+        if (result == .error_) {
+            return result;
         }
     }
 
     return result;
 }
 
-fn evalIfExpression(ast_tree: *ast.Tree, if_: ast.Node.If) !Object {
-    const condition = try eval(ast_tree, ast_tree.nodes.items[if_.condition]);
+fn evalBlockStatment(self: *Evaluator, ast_tree: *ast.Tree, block: ast.Node.Block) !Object {
+    var result: Object = Object{ .null = Null_Global };
+
+    for (block.statements) |statement| {
+        result = try self.eval(ast_tree, ast_tree.nodes.items[statement]);
+
+        if (result == .return_ or result == .error_) {
+            return result;
+        }
+    }
+
+    return result;
+}
+
+fn evalIfExpression(self: *Evaluator, ast_tree: *ast.Tree, if_: ast.Node.If) !Object {
+    const condition = try self.eval(ast_tree, ast_tree.nodes.items[if_.condition]);
+    if (condition == .error_) {
+        return condition;
+    }
 
     if (isTruthy(condition)) {
-        return eval(ast_tree, ast_tree.nodes.items[if_.consequence]);
+        return self.eval(ast_tree, ast_tree.nodes.items[if_.consequence]);
     } else if (if_.alternative) |alternative| {
-        return eval(ast_tree, ast_tree.nodes.items[alternative]);
+        return self.eval(ast_tree, ast_tree.nodes.items[alternative]);
     } else {
         return Object{ .null = Null_Global };
     }
@@ -175,21 +221,25 @@ fn isTruthy(obj: Object) bool {
     }
 }
 
-fn evalPrefixExpression(operator: []const u8, right: Object) !Object {
+fn evalPrefixExpression(self: *Evaluator, operator: []const u8, right: Object) !Object {
     if (std.mem.eql(u8, operator, "!")) {
         return try evalBangOperatorExpression(right);
     }
 
     if (std.mem.eql(u8, operator, "-")) {
-        return try evalMinusPrefixOperatorExpression(right);
+        return try self.evalMinusPrefixOperatorExpression(right);
     }
 
-    return error.EvalPrefixExpressionOperatorNotImlementedYet;
+    return Object{
+        .error_ = .{
+            .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: {s}{s}", .{ operator, @tagName(right) }),
+        },
+    };
 }
 
-fn evalInfixExpression(operator: []const u8, left: Object, right: Object) !Object {
+fn evalInfixExpression(self: *Evaluator, operator: []const u8, left: Object, right: Object) !Object {
     if (left == .integer and right == .integer) {
-        return evalIntegerInfixExpression(operator, left.integer, right.integer);
+        return self.evalIntegerInfixExpression(operator, left.integer, right.integer);
     }
 
     if (std.mem.eql(u8, operator, "==")) {
@@ -200,10 +250,20 @@ fn evalInfixExpression(operator: []const u8, left: Object, right: Object) !Objec
         return Object{ .boolean = nativeBoolToBooleanObject(!std.meta.eql(left, right)) };
     }
 
-    return errors.EvalInfixExpressionNotImplemented;
+    if (!std.mem.eql(u8, @tagName(left), @tagName(right))) {
+        return Object{
+            .error_ = .{
+                .message = try std.fmt.allocPrint(self.arena.allocator(), "type mismatch: {s} {s} {s}", .{ @tagName(left), operator, @tagName(right) }),
+            },
+        };
+    }
+
+    return Object{ .error_ = .{
+        .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: {s} {s} {s}", .{ @tagName(left), operator, @tagName(right) }),
+    } };
 }
 
-fn evalIntegerInfixExpression(operator: []const u8, left: Object.Integer, right: Object.Integer) !Object {
+fn evalIntegerInfixExpression(self: *Evaluator, operator: []const u8, left: Object.Integer, right: Object.Integer) !Object {
     if (std.mem.eql(u8, "+", operator)) {
         return Object{ .integer = .{ .value = left.value + right.value } };
     }
@@ -236,7 +296,9 @@ fn evalIntegerInfixExpression(operator: []const u8, left: Object.Integer, right:
         return Object{ .boolean = nativeBoolToBooleanObject(left.value != right.value) };
     }
 
-    return errors.EvalIntegerInfixExpressionUndefined;
+    return Object{
+        .error_ = .{ .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: integer {s} integer", .{operator}) },
+    };
 }
 
 fn evalBangOperatorExpression(right: Object) !Object {
@@ -259,13 +321,15 @@ fn evalBangOperatorExpression(right: Object) !Object {
     }
 }
 
-fn evalMinusPrefixOperatorExpression(right: Object) !Object {
+fn evalMinusPrefixOperatorExpression(self: *Evaluator, right: Object) !Object {
     switch (right) {
         .integer => |integer| {
             return Object{ .integer = .{ .value = -integer.value } };
         },
         else => {
-            return errors.EvalMinusPrefixOperatorExpressionNotImplementedYet;
+            return Object{
+                .error_ = .{ .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: -{s}", .{@tagName(right)}) },
+            };
         },
     }
 }
@@ -274,7 +338,7 @@ fn nativeBoolToBooleanObject(value: bool) *const Object.Boolean {
     return if (value) True else False;
 }
 
-fn testEvalToObject(alloc: std.mem.Allocator, input: []const u8) !Object {
+fn testEvalToObject(alloc: std.mem.Allocator, evaluator: *Evaluator, input: []const u8) !Object {
     const lexer = Lexer.init(input);
     var parser = try Parser.init(alloc, lexer);
     defer parser.deinit();
@@ -282,7 +346,7 @@ fn testEvalToObject(alloc: std.mem.Allocator, input: []const u8) !Object {
     defer ast_tree.deinit();
 
     if (ast_tree.root) |root_idx| {
-        return eval(&ast_tree, ast_tree.nodes.items[root_idx]);
+        return evaluator.eval(&ast_tree, ast_tree.nodes.items[root_idx]);
     } else {
         return error.NoAstRootNode;
     }
@@ -386,7 +450,10 @@ test "Eval Integer Expression" {
     };
 
     inline for (tests) |test_item| {
-        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
         try testIntegerObject(test_item[1], evaluated_ast);
     }
 }
@@ -472,7 +539,9 @@ test "Eval Boolean Expression" {
     };
 
     inline for (tests) |test_item| {
-        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
         testBooleanObject(test_item[1], evaluated_ast) catch |err| {
             std.debug.print("\nfailed at comparing: {s} with {any}\n", .{ test_item[0], evaluated_ast });
             return err;
@@ -509,7 +578,10 @@ test "Bang Operator" {
     };
 
     inline for (tests) |test_item| {
-        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
         try testBooleanObject(test_item[1], evaluated_ast);
     }
 }
@@ -547,7 +619,10 @@ test "Eval If Else Expression" {
     };
 
     inline for (tests) |test_item| {
-        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
 
         switch (@TypeOf(test_item[1])) {
             comptime_int => {
@@ -595,8 +670,54 @@ test "Return Statements" {
     };
 
     inline for (tests) |test_item| {
-        const evaluated_ast = try testEvalToObject(testing.allocator, test_item[0]);
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
 
         try testIntegerObject(test_item[1], evaluated_ast);
+    }
+}
+
+test "Error Handling" {
+    const tests = .{
+        .{
+            "5 + true;",
+            "type mismatch: integer + boolean",
+        },
+        .{
+            "5 + true; 5;",
+            "type mismatch: integer + boolean",
+        },
+        .{
+            "-true",
+            "unknown operator: -boolean",
+        },
+        .{
+            "true + false",
+            "unknown operator: boolean + boolean",
+        },
+        .{
+            "5; true + false; 5",
+            "unknown operator: boolean + boolean",
+        },
+        .{
+            "if (10 > 1) { true + false; }",
+            "unknown operator: boolean + boolean",
+        },
+    };
+
+    inline for (tests) |test_item| {
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
+
+        if (evaluated_ast != .error_) {
+            std.debug.print("DEBUG {any}", .{evaluated_ast});
+            return error.TestErrorHandlingNoErrorObjectReturned;
+        }
+
+        try testing.expectEqualStrings(test_item[1], evaluated_ast.error_.message);
     }
 }
