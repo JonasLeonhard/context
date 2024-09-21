@@ -95,7 +95,7 @@ pub fn start_eval(self: *Repl, alloc: std.mem.Allocator) !void {
         if (ast_tree.root) |root| {
             const root_node: ast.Node = ast_tree.nodes.items[root];
             const evaluated = try self.evaluator.eval(&ast_tree, &env, root_node);
-            const eval_to_str = try evaluated.toString(alloc);
+            const eval_to_str = try evaluated.toString(alloc, &ast_tree);
             defer alloc.free(eval_to_str);
 
             try tty_config.setColor(stdout.writer(), .yellow);

@@ -153,6 +153,149 @@ pub const Tree = struct {
 
         return json_node;
     }
+
+    pub fn nodeToString(self: *const Tree, alloc: std.mem.Allocator, node: Node) ![]const u8 {
+        switch (node) {
+            .root => |root| {
+                var result = std.ArrayList(u8).init(alloc);
+                defer result.deinit();
+
+                try result.appendSlice("Program {\n");
+                for (root.statements) |stmt| {
+                    const stmt_str = try self.nodeToString(alloc, self.nodes.items[stmt]);
+                    defer alloc.free(stmt_str);
+                    try result.appendSlice("  ");
+                    try result.appendSlice(stmt_str);
+                    try result.appendSlice("\n");
+                }
+                try result.appendSlice("}");
+
+                return result.toOwnedSlice();
+            },
+            .return_ => |ret| {
+                if (ret.expr) |expr| {
+                    const expr_str = try self.nodeToString(alloc, self.nodes.items[expr]);
+                    defer alloc.free(expr_str);
+                    return try std.fmt.allocPrint(alloc, "return {s}", .{expr_str});
+                } else {
+                    return try alloc.dupe(u8, "return");
+                }
+            },
+            .declare_assign => |decl| {
+                const ident_str = try self.nodeToString(alloc, self.nodes.items[decl.ident]);
+                defer alloc.free(ident_str);
+                if (decl.expr) |expr| {
+                    const expr_str = try self.nodeToString(alloc, self.nodes.items[expr]);
+                    defer alloc.free(expr_str);
+                    return try std.fmt.allocPrint(alloc, "{s} := {s}", .{ ident_str, expr_str });
+                } else {
+                    return try std.fmt.allocPrint(alloc, "{s} :=", .{ident_str});
+                }
+            },
+            .expression => |expr| {
+                if (expr.expr) |e| {
+                    return try self.nodeToString(alloc, self.nodes.items[e]);
+                } else {
+                    return try alloc.dupe(u8, "");
+                }
+            },
+            .block => |block| {
+                var result = std.ArrayList(u8).init(alloc);
+                defer result.deinit();
+
+                try result.appendSlice("{\n");
+                for (block.statements) |stmt| {
+                    const stmt_str = try self.nodeToString(alloc, self.nodes.items[stmt]);
+                    defer alloc.free(stmt_str);
+                    try result.appendSlice("  ");
+                    try result.appendSlice(stmt_str);
+                    try result.appendSlice("\n");
+                }
+                try result.appendSlice("}");
+
+                return result.toOwnedSlice();
+            },
+            .ident => |ident| {
+                return try alloc.dupe(u8, ident.value);
+            },
+            .infix => |infix| {
+                const left_str = try self.nodeToString(alloc, self.nodes.items[infix.left]);
+                defer alloc.free(left_str);
+                const right_str = try self.nodeToString(alloc, self.nodes.items[infix.right]);
+                defer alloc.free(right_str);
+                return try std.fmt.allocPrint(alloc, "({s} {s} {s})", .{ left_str, infix.operator, right_str });
+            },
+            .prefix => |prefix| {
+                const right_str = try self.nodeToString(alloc, self.nodes.items[prefix.right]);
+                defer alloc.free(right_str);
+                return try std.fmt.allocPrint(alloc, "({s}{s})", .{ prefix.operator, right_str });
+            },
+            .literal => |lit| {
+                return switch (lit.value) {
+                    .int => |value| try std.fmt.allocPrint(alloc, "{d}", .{value}),
+                    .boolean => |value| try std.fmt.allocPrint(alloc, "{}", .{value}),
+                    .null => try alloc.dupe(u8, "null"),
+                    .float => |value| try std.fmt.allocPrint(alloc, "{d}", .{value}),
+                    .string => |value| try std.fmt.allocPrint(alloc, "\"{s}\"", .{value}),
+                };
+            },
+            .if_ => |if_node| {
+                const cond_str = try self.nodeToString(alloc, self.nodes.items[if_node.condition]);
+                defer alloc.free(cond_str);
+                const cons_str = try self.nodeToString(alloc, self.nodes.items[if_node.consequence]);
+                defer alloc.free(cons_str);
+                if (if_node.alternative) |alt| {
+                    const alt_str = try self.nodeToString(alloc, self.nodes.items[alt]);
+                    defer alloc.free(alt_str);
+                    return try std.fmt.allocPrint(alloc, "if {s} {s} else {s}", .{ cond_str, cons_str, alt_str });
+                } else {
+                    return try std.fmt.allocPrint(alloc, "if {s} {s}", .{ cond_str, cons_str });
+                }
+            },
+            .function => |func| {
+                var result = std.ArrayList(u8).init(alloc);
+                defer result.deinit();
+
+                try result.appendSlice("fn(");
+                for (func.parameters, 0..) |param, i| {
+                    const param_str = try self.nodeToString(alloc, self.nodes.items[param]);
+                    defer alloc.free(param_str);
+                    try result.appendSlice(param_str);
+                    if (i < func.parameters.len - 1) {
+                        try result.appendSlice(", ");
+                    }
+                }
+                try result.appendSlice(") ");
+
+                const body_str = try self.nodeToString(alloc, self.nodes.items[func.body]);
+                defer alloc.free(body_str);
+                try result.appendSlice(body_str);
+
+                return result.toOwnedSlice();
+            },
+            .call => |call| {
+                var result = std.ArrayList(u8).init(alloc);
+                defer result.deinit();
+
+                const func_str = try self.nodeToString(alloc, self.nodes.items[call.function]);
+                defer alloc.free(func_str);
+                try result.appendSlice(func_str);
+                try result.appendSlice("(");
+
+                for (call.arguments, 0..) |arg, i| {
+                    const arg_str = try self.nodeToString(alloc, self.nodes.items[arg]);
+                    defer alloc.free(arg_str);
+                    try result.appendSlice(arg_str);
+                    if (i < call.arguments.len - 1) {
+                        try result.appendSlice(", ");
+                    }
+                }
+                try result.appendSlice(")");
+
+                return result.toOwnedSlice();
+            },
+        }
+    }
 };
 
 pub const NodeIndex = u32;
