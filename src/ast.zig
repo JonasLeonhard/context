@@ -4,22 +4,19 @@ const Token = token.Token;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 
-/// Based on Zigs Data oriented design approach explained in these talks
-/// https://www.youtube.com/watch?v=IroPQ150F6c
-/// https://www.youtube.com/watch?v=KOZcJwGdQok&t=2005s
+const Errors = error{};
+
 pub const Tree = struct {
     arena: ArenaAllocator,
-    /// The root node is expected to be the last node added to the nodes array list! => tree.nodes.len - 1
-    nodes: ArrayList(Node), // TODO: SPEED: zigs compiler uses a MultiArrayList(Node) here
-    root: ?NodeIndex,
+    /// Root node is expected to be the first statement
+    nodes: ArrayList(Statement),
 
     pub fn init(alloc: std.mem.Allocator) Tree {
         const arena = ArenaAllocator.init(alloc);
 
         return .{
             .arena = arena,
-            .nodes = std.ArrayList(Node).init(alloc),
-            .root = null,
+            .nodes = std.ArrayList(Statement).init(alloc),
         };
     }
 
@@ -28,288 +25,112 @@ pub const Tree = struct {
         self.arena.deinit();
     }
 
-    pub fn addNode(self: *Tree, node: Node) !NodeIndex {
-        try self.nodes.append(node);
-
-        const node_index: NodeIndex = @intCast(self.nodes.items.len - 1);
-
-        if (node == .root) {
-            self.root = node_index;
+    pub fn jsonStringify(self: Tree, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("nodes");
+        try jw.beginArray();
+        for (self.nodes.items) |node| {
+            try jw.write(node);
         }
-
-        return node_index;
+        try jw.endArray();
+        try jw.endObject();
     }
+};
 
-    pub fn toString(self: *const Tree, alloc: std.mem.Allocator) ![]u8 {
-        var list = std.ArrayList(u8).init(alloc);
-        errdefer list.deinit();
+pub const Statement = union(enum) {
+    return_: ReturnStatement,
+    declare_assign: DeclareAssignStatement,
+    expression: ExpressionStatement,
+    block: BlockStatement,
 
-        try self.toJson(alloc, list.writer());
+    pub const ReturnStatement = struct {
+        token: Token,
+        expr: ?Expression,
 
-        return list.toOwnedSlice();
-    }
-
-    pub fn toJson(self: *const Tree, alloc: std.mem.Allocator, writer: anytype) !void {
-        var arena = std.heap.ArenaAllocator.init(alloc);
-        defer arena.deinit();
-        const arena_alloc = arena.allocator();
-
-        var json_tree = std.json.Value{
-            .object = std.json.ObjectMap.init(arena_alloc),
-        };
-
-        if (self.root) |root| {
-            try json_tree.object.put("root", try self.nodeToJson(root, arena_alloc));
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("return");
+            if (self.expr) |expr| {
+                try jw.objectField("expression");
+                try jw.write(expr);
+            }
+            try jw.endObject();
         }
+    };
 
-        try std.json.stringify(json_tree, .{ .whitespace = .indent_2 }, writer);
-    }
+    pub const DeclareAssignStatement = struct {
+        token: Token,
+        ident: Expression.Ident,
+        expr: ?Expression,
 
-    fn nodeToJson(self: *const Tree, node_index: NodeIndex, alloc: std.mem.Allocator) !std.json.Value {
-        const node = self.nodes.items[node_index];
-        var json_node = std.json.Value{
-            .object = std.json.ObjectMap.init(alloc),
-        };
-        errdefer json_node.object.deinit();
-
-        try json_node.object.put("type", std.json.Value{ .string = @tagName(node) });
-
-        switch (node) {
-            .root => |root| {
-                var statements = std.json.Value{ .array = std.json.Array.init(alloc) };
-                for (root.statements) |stmt| {
-                    try statements.array.append(try self.nodeToJson(stmt, alloc));
-                }
-                try json_node.object.put("statements", statements);
-            },
-            .return_ => |ret| {
-                if (ret.expr) |expr| {
-                    try json_node.object.put("expression", try self.nodeToJson(expr, alloc));
-                }
-            },
-            .declare_assign => |decl| {
-                try json_node.object.put("identifier", try self.nodeToJson(decl.ident, alloc));
-                if (decl.expr) |expr| {
-                    try json_node.object.put("expression", try self.nodeToJson(expr, alloc));
-                }
-            },
-            .expression => |expr| {
-                if (expr.expr) |e| {
-                    try json_node.object.put("expression", try self.nodeToJson(e, alloc));
-                }
-            },
-            .block => |block| {
-                var statements = std.json.Value{ .array = std.json.Array.init(alloc) };
-                for (block.statements) |stmt| {
-                    try statements.array.append(try self.nodeToJson(stmt, alloc));
-                }
-                try json_node.object.put("statements", statements);
-            },
-            .ident => |ident| {
-                try json_node.object.put("value", std.json.Value{ .string = ident.value });
-            },
-            .infix => |infix| {
-                try json_node.object.put("operator", std.json.Value{ .string = infix.operator });
-                try json_node.object.put("left", try self.nodeToJson(infix.left, alloc));
-                try json_node.object.put("right", try self.nodeToJson(infix.right, alloc));
-            },
-            .prefix => |prefix| {
-                try json_node.object.put("operator", std.json.Value{ .string = prefix.operator });
-                try json_node.object.put("right", try self.nodeToJson(prefix.right, alloc));
-            },
-            .literal => |lit| {
-                switch (lit.value) {
-                    .int => |value| try json_node.object.put("value", std.json.Value{ .integer = value }),
-                    .boolean => |value| try json_node.object.put("value", std.json.Value{ .bool = value }),
-                    .null => try json_node.object.put("value", std.json.Value{ .null = {} }),
-                    .float => |value| try json_node.object.put("value", std.json.Value{ .float = value }),
-                    .string => |value| try json_node.object.put("value", std.json.Value{ .string = value }),
-                }
-            },
-            .if_ => |if_node| {
-                try json_node.object.put("condition", try self.nodeToJson(if_node.condition, alloc));
-                try json_node.object.put("consequence", try self.nodeToJson(if_node.consequence, alloc));
-                if (if_node.alternative) |alt| {
-                    try json_node.object.put("alternative", try self.nodeToJson(alt, alloc));
-                }
-            },
-            .function => |func| {
-                var parameters = std.json.Value{ .array = std.json.Array.init(alloc) };
-                for (func.parameters) |param| {
-                    try parameters.array.append(try self.nodeToJson(param, alloc));
-                }
-                try json_node.object.put("parameters", parameters);
-                try json_node.object.put("body", try self.nodeToJson(func.body, alloc));
-            },
-            .call => |call| {
-                try json_node.object.put("function", try self.nodeToJson(call.function, alloc));
-                var arguments = std.json.Value{ .array = std.json.Array.init(alloc) };
-                for (call.arguments) |arg| {
-                    try arguments.array.append(try self.nodeToJson(arg, alloc));
-                }
-                try json_node.object.put("arguments", arguments);
-            },
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("declare_assign");
+            try jw.objectField("identifier");
+            try jw.write(self.ident);
+            if (self.expr) |expr| {
+                try jw.objectField("expression");
+                try jw.write(expr);
+            }
+            try jw.endObject();
         }
+    };
 
-        return json_node;
-    }
+    pub const ExpressionStatement = struct {
+        token: Token,
+        expr: ?Expression,
 
-    pub fn nodeToString(self: *const Tree, alloc: std.mem.Allocator, node: Node) ![]const u8 {
-        switch (node) {
-            .root => |root| {
-                var result = std.ArrayList(u8).init(alloc);
-                defer result.deinit();
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("expression_statement");
+            if (self.expr) |expr| {
+                try jw.objectField("expression");
+                try jw.write(expr);
+            }
+            try jw.endObject();
+        }
+    };
 
-                try result.appendSlice("Program {\n");
-                for (root.statements) |stmt| {
-                    const stmt_str = try self.nodeToString(alloc, self.nodes.items[stmt]);
-                    defer alloc.free(stmt_str);
-                    try result.appendSlice("  ");
-                    try result.appendSlice(stmt_str);
-                    try result.appendSlice("\n");
-                }
-                try result.appendSlice("}");
+    pub const BlockStatement = struct {
+        token: Token,
+        statements: ArrayList(Statement),
 
-                return result.toOwnedSlice();
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("block");
+            try jw.objectField("statements");
+            try jw.beginArray();
+            for (self.statements.items) |stmt| {
+                try jw.write(stmt);
+            }
+            try jw.endArray();
+            try jw.endObject();
+        }
+    };
+
+    pub fn jsonStringify(self: Statement, jw: anytype) !void {
+        switch (self) {
+            .return_ => |s| {
+                try s.jsonStringify(jw);
             },
-            .return_ => |ret| {
-                if (ret.expr) |expr| {
-                    const expr_str = try self.nodeToString(alloc, self.nodes.items[expr]);
-                    defer alloc.free(expr_str);
-                    return try std.fmt.allocPrint(alloc, "return {s}", .{expr_str});
-                } else {
-                    return try alloc.dupe(u8, "return");
-                }
+            .declare_assign => |s| {
+                try s.jsonStringify(jw);
             },
-            .declare_assign => |decl| {
-                const ident_str = try self.nodeToString(alloc, self.nodes.items[decl.ident]);
-                defer alloc.free(ident_str);
-                if (decl.expr) |expr| {
-                    const expr_str = try self.nodeToString(alloc, self.nodes.items[expr]);
-                    defer alloc.free(expr_str);
-                    return try std.fmt.allocPrint(alloc, "{s} := {s}", .{ ident_str, expr_str });
-                } else {
-                    return try std.fmt.allocPrint(alloc, "{s} :=", .{ident_str});
-                }
+            .expression => |s| {
+                try s.jsonStringify(jw);
             },
-            .expression => |expr| {
-                if (expr.expr) |e| {
-                    return try self.nodeToString(alloc, self.nodes.items[e]);
-                } else {
-                    return try alloc.dupe(u8, "");
-                }
-            },
-            .block => |block| {
-                var result = std.ArrayList(u8).init(alloc);
-                defer result.deinit();
-
-                try result.appendSlice("{\n");
-                for (block.statements) |stmt| {
-                    const stmt_str = try self.nodeToString(alloc, self.nodes.items[stmt]);
-                    defer alloc.free(stmt_str);
-                    try result.appendSlice("  ");
-                    try result.appendSlice(stmt_str);
-                    try result.appendSlice("\n");
-                }
-                try result.appendSlice("}");
-
-                return result.toOwnedSlice();
-            },
-            .ident => |ident| {
-                return try alloc.dupe(u8, ident.value);
-            },
-            .infix => |infix| {
-                const left_str = try self.nodeToString(alloc, self.nodes.items[infix.left]);
-                defer alloc.free(left_str);
-                const right_str = try self.nodeToString(alloc, self.nodes.items[infix.right]);
-                defer alloc.free(right_str);
-                return try std.fmt.allocPrint(alloc, "({s} {s} {s})", .{ left_str, infix.operator, right_str });
-            },
-            .prefix => |prefix| {
-                const right_str = try self.nodeToString(alloc, self.nodes.items[prefix.right]);
-                defer alloc.free(right_str);
-                return try std.fmt.allocPrint(alloc, "({s}{s})", .{ prefix.operator, right_str });
-            },
-            .literal => |lit| {
-                return switch (lit.value) {
-                    .int => |value| try std.fmt.allocPrint(alloc, "{d}", .{value}),
-                    .boolean => |value| try std.fmt.allocPrint(alloc, "{}", .{value}),
-                    .null => try alloc.dupe(u8, "null"),
-                    .float => |value| try std.fmt.allocPrint(alloc, "{d}", .{value}),
-                    .string => |value| try std.fmt.allocPrint(alloc, "\"{s}\"", .{value}),
-                };
-            },
-            .if_ => |if_node| {
-                const cond_str = try self.nodeToString(alloc, self.nodes.items[if_node.condition]);
-                defer alloc.free(cond_str);
-                const cons_str = try self.nodeToString(alloc, self.nodes.items[if_node.consequence]);
-                defer alloc.free(cons_str);
-                if (if_node.alternative) |alt| {
-                    const alt_str = try self.nodeToString(alloc, self.nodes.items[alt]);
-                    defer alloc.free(alt_str);
-                    return try std.fmt.allocPrint(alloc, "if {s} {s} else {s}", .{ cond_str, cons_str, alt_str });
-                } else {
-                    return try std.fmt.allocPrint(alloc, "if {s} {s}", .{ cond_str, cons_str });
-                }
-            },
-            .function => |func| {
-                var result = std.ArrayList(u8).init(alloc);
-                defer result.deinit();
-
-                try result.appendSlice("fn(");
-                for (func.parameters, 0..) |param, i| {
-                    const param_str = try self.nodeToString(alloc, self.nodes.items[param]);
-                    defer alloc.free(param_str);
-                    try result.appendSlice(param_str);
-                    if (i < func.parameters.len - 1) {
-                        try result.appendSlice(", ");
-                    }
-                }
-                try result.appendSlice(") ");
-
-                const body_str = try self.nodeToString(alloc, self.nodes.items[func.body]);
-                defer alloc.free(body_str);
-                try result.appendSlice(body_str);
-
-                return result.toOwnedSlice();
-            },
-            .call => |call| {
-                var result = std.ArrayList(u8).init(alloc);
-                defer result.deinit();
-
-                const func_str = try self.nodeToString(alloc, self.nodes.items[call.function]);
-                defer alloc.free(func_str);
-                try result.appendSlice(func_str);
-                try result.appendSlice("(");
-
-                for (call.arguments, 0..) |arg, i| {
-                    const arg_str = try self.nodeToString(alloc, self.nodes.items[arg]);
-                    defer alloc.free(arg_str);
-                    try result.appendSlice(arg_str);
-                    if (i < call.arguments.len - 1) {
-                        try result.appendSlice(", ");
-                    }
-                }
-                try result.appendSlice(")");
-
-                return result.toOwnedSlice();
+            .block => |s| {
+                try s.jsonStringify(jw);
             },
         }
     }
 };
 
-pub const NodeIndex = u32;
-
-pub const Node = union(enum) {
-    root: Root,
-
-    // ---------- Statements ---------
-    return_: Return,
-    declare_assign: DeclareAssign,
-    expression: Expression,
-    block: Block,
-
-    // ---------- Expressions --------
+pub const Expression = union(enum) {
     ident: Ident,
     infix: Infix,
     prefix: Prefix,
@@ -318,98 +139,188 @@ pub const Node = union(enum) {
     function: Function,
     call: Call,
 
-    pub const Root = struct {
-        /// Statements
-        statements: []const NodeIndex,
-    };
-
-    // ---------- Statements ---------
-    pub const Return = struct {
-        token: Token,
-        /// Expression
-        expr: ?NodeIndex,
-    };
-
-    pub const DeclareAssign = struct {
-        token: Token,
-        ident: NodeIndex,
-        /// Expression
-        expr: ?NodeIndex,
-    };
-
-    pub const Expression = struct {
-        token: Token,
-        /// Expression
-        expr: ?NodeIndex,
-    };
-
-    pub const Block = struct {
-        token: Token,
-        /// Statements
-        statements: []const NodeIndex,
-    };
-
-    // ---------- Expressions --------
     pub const Ident = struct {
         token: Token,
         value: []const u8,
+
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("ident");
+            try jw.objectField("value");
+            try jw.write(self.value);
+            try jw.endObject();
+        }
     };
 
     pub const Infix = struct {
         token: Token,
-        /// Expression
-        left: NodeIndex,
+        left: *Expression,
         operator: []const u8,
-        /// Expression
-        right: NodeIndex,
+        right: *Expression,
+
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("infix");
+            try jw.objectField("operator");
+            try jw.write(self.operator);
+            try jw.objectField("left");
+            try jw.write(self.left);
+            try jw.objectField("right");
+            try jw.write(self.right);
+            try jw.endObject();
+        }
     };
 
     pub const Prefix = struct {
         token: Token,
         operator: []const u8,
-        /// Expression
-        right: NodeIndex,
+        right: *Expression,
+
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("prefix");
+            try jw.objectField("operator");
+            try jw.write(self.operator);
+            try jw.objectField("right");
+            try jw.write(self.right);
+            try jw.endObject();
+        }
     };
 
     pub const If = struct {
         token: Token,
-        /// Expression
-        condition: NodeIndex,
-        /// BlockStatement
-        consequence: NodeIndex,
-        /// BlockStatement
-        alternative: ?NodeIndex,
+        condition: *Expression,
+        consequence: Statement.BlockStatement,
+        alternative: ?Statement.BlockStatement,
+
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("if");
+            try jw.objectField("condition");
+            try jw.write(self.condition);
+            try jw.objectField("consequence");
+            try jw.write(self.consequence);
+            if (self.alternative) |alt| {
+                try jw.objectField("alternative");
+                try jw.write(alt);
+            }
+            try jw.endObject();
+        }
     };
 
     pub const Function = struct {
         token: Token,
-        /// Ident
-        parameters: []NodeIndex,
-        /// BlockStatement
-        body: NodeIndex,
+        parameters: ArrayList(Ident),
+        body: Statement.BlockStatement,
+
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("function");
+            try jw.objectField("parameters");
+            try jw.beginArray();
+            for (self.parameters.items) |param| {
+                try jw.write(param);
+            }
+            try jw.endArray();
+            try jw.objectField("body");
+            try jw.write(self.body);
+            try jw.endObject();
+        }
     };
 
-    /// CallExpression
     pub const Call = struct {
         token: Token,
-        /// Expression
-        function: NodeIndex,
-        /// []Expression
-        arguments: []NodeIndex,
+        function: *Expression,
+        arguments: ArrayList(Expression),
+
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("call");
+            try jw.objectField("function");
+            try jw.write(self.function);
+            try jw.objectField("arguments");
+            try jw.beginArray();
+            for (self.arguments.items) |arg| {
+                try jw.write(arg);
+            }
+            try jw.endArray();
+            try jw.endObject();
+        }
     };
 
     pub const Literal = struct {
         token: Token,
         value: LiteralValue,
+
+        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("literal");
+            try jw.objectField("value");
+            try self.value.jsonStringify(jw);
+            try jw.endObject();
+        }
     };
 
     const LiteralValue = union(enum) {
         int: i64,
         boolean: bool,
-        null,
+        null: void,
         float: f64,
         string: []const u8,
+
+        pub fn jsonStringify(self: LiteralValue, jw: anytype) !void {
+            switch (self) {
+                .int => |v| {
+                    try jw.write(v);
+                },
+                .boolean => |v| {
+                    try jw.write(v);
+                },
+                .null => {
+                    try jw.write(null);
+                },
+                .float => |v| {
+                    try jw.write(v);
+                },
+                .string => |v| {
+                    try jw.write(v);
+                },
+            }
+        }
     };
+
+    pub fn jsonStringify(self: Expression, jw: anytype) !void {
+        switch (self) {
+            .ident => |e| {
+                try e.jsonStringify(jw);
+            },
+            .infix => |e| {
+                try e.jsonStringify(jw);
+            },
+            .prefix => |e| {
+                try e.jsonStringify(jw);
+            },
+            .literal => |e| {
+                try e.jsonStringify(jw);
+            },
+            .if_ => |e| {
+                try e.jsonStringify(jw);
+            },
+            .function => |e| {
+                try e.jsonStringify(jw);
+            },
+            .call => |e| {
+                try e.jsonStringify(jw);
+            },
+        }
+    }
 };
 
 test "AstTree" {
@@ -417,40 +328,39 @@ test "AstTree" {
     defer tree.deinit();
 
     // Create a simple AST: x := 5 + 3;
-    const literal_5 = try tree.addNode(
-        .{
-            .literal = .{
-                .token = Token{
-                    .type = .{
-                        .Literal = .Int,
-                    },
-                    .literal = "5",
-                    .location = null,
+    const literal_5 = try tree.arena.allocator().create(Expression);
+    literal_5.* = Expression{
+        .literal = .{
+            .token = Token{
+                .type = .{
+                    .Literal = .Int,
                 },
-                .value = .{
-                    .int = 5,
-                },
+                .literal = "5",
+                .location = null,
+            },
+            .value = .{
+                .int = 5,
             },
         },
-    );
-    const literal_3 = try tree.addNode(
-        .{
-            .literal = .{
-                .token = Token{
-                    .type = .{
-                        .Literal = .Int,
-                    },
-                    .literal = "3",
-                    .location = null,
-                },
-                .value = .{
-                    .int = 3,
-                },
-            },
-        },
-    );
+    };
 
-    const infix = try tree.addNode(.{
+    const literal_3 = try tree.arena.allocator().create(Expression);
+    literal_3.* = Expression{
+        .literal = .{
+            .token = Token{
+                .type = .{
+                    .Literal = .Int,
+                },
+                .literal = "3",
+                .location = null,
+            },
+            .value = .{
+                .int = 3,
+            },
+        },
+    };
+
+    const infix = Expression{
         .infix = .{
             .token = Token{
                 .type = .Plus,
@@ -461,9 +371,9 @@ test "AstTree" {
             .operator = "+",
             .right = literal_3,
         },
-    });
+    };
 
-    const ident = try tree.addNode(.{
+    const ident = Expression{
         .ident = .{
             .token = Token{
                 .type = .Ident,
@@ -472,58 +382,51 @@ test "AstTree" {
             },
             .value = "x",
         },
-    });
+    };
 
-    const declare_assign = try tree.addNode(.{
+    const declare_assign = Statement{
         .declare_assign = .{
             .token = Token{
                 .type = .Ident,
                 .literal = "x",
                 .location = null,
             },
-            .ident = ident,
+            .ident = ident.ident,
             .expr = infix,
         },
-    });
+    };
 
-    _ = try tree.addNode(.{
-        .root = .{ .statements = &.{declare_assign} },
-    });
+    try tree.nodes.append(declare_assign);
 
-    // Print the tree structure
-    const tree_string = try tree.toString(std.testing.allocator);
-    defer std.testing.allocator.free(tree_string);
-
-    // std.debug.print("tree_string {s}", .{tree_string});
+    var tree_string = std.ArrayList(u8).init(std.testing.allocator);
+    defer tree_string.deinit();
+    try std.json.stringify(tree, .{ .whitespace = .indent_2 }, tree_string.writer());
 
     const expected_output =
         \\{
-        \\  "root": {
-        \\    "type": "root",
-        \\    "statements": [
-        \\      {
-        \\        "type": "declare_assign",
-        \\        "identifier": {
-        \\          "type": "ident",
-        \\          "value": "x"
+        \\  "nodes": [
+        \\    {
+        \\      "type": "declare_assign",
+        \\      "identifier": {
+        \\        "type": "ident",
+        \\        "value": "x"
+        \\      },
+        \\      "expression": {
+        \\        "type": "infix",
+        \\        "operator": "+",
+        \\        "left": {
+        \\          "type": "literal",
+        \\          "value": 5
         \\        },
-        \\        "expression": {
-        \\          "type": "infix",
-        \\          "operator": "+",
-        \\          "left": {
-        \\            "type": "literal",
-        \\            "value": 5
-        \\          },
-        \\          "right": {
-        \\            "type": "literal",
-        \\            "value": 3
-        \\          }
+        \\        "right": {
+        \\          "type": "literal",
+        \\          "value": 3
         \\        }
         \\      }
-        \\    ]
-        \\  }
+        \\    }
+        \\  ]
         \\}
     ;
 
-    try std.testing.expectEqualStrings(expected_output, tree_string);
+    try std.testing.expectEqualStrings(expected_output, tree_string.items);
 }

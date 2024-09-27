@@ -42,8 +42,8 @@ const Precedence = enum {
         };
     }
 };
-const PrefixParseFunc = *const fn (parser: *Parser, ast_tree: *ast.Tree) anyerror!ast.NodeIndex; // TODO: change anyerror to actual errors...
-const InfixParseFunc = *const fn (parser: *Parser, ast_tree: *ast.Tree, left: ast.NodeIndex) anyerror!ast.NodeIndex;
+const PrefixParseFunc = *const fn (parser: *Parser, ast_tree: *ast.Tree) anyerror!ast.Expression; // TODO: change anyerror to actual errors...
+const InfixParseFunc = *const fn (parser: *Parser, ast_tree: *ast.Tree, left: ast.Expression) anyerror!ast.Expression;
 
 lexer: Lexer,
 prev_token: Token = .{ .type = .Unknown, .literal = "", .location = null },
@@ -167,25 +167,17 @@ pub fn parseTree(self: *Parser, alloc: std.mem.Allocator) !ast.Tree {
     var ast_tree = ast.Tree.init(alloc);
     errdefer ast_tree.deinit();
 
-    var statements = std.ArrayList(ast.NodeIndex).init(ast_tree.arena.allocator());
-
     while (self.cur_token.type != .Eof) {
         if (try self.parseStatement(&ast_tree)) |stmt| {
-            try statements.append(stmt);
+            try ast_tree.nodes.append(stmt);
         }
         self.nextToken();
     }
 
-    _ = try ast_tree.addNode(.{
-        .root = .{
-            .statements = try statements.toOwnedSlice(),
-        },
-    });
-
     return ast_tree;
 }
 
-fn parseStatement(self: *Parser, ast_tree: *ast.Tree) !?ast.NodeIndex {
+fn parseStatement(self: *Parser, ast_tree: *ast.Tree) !?ast.Statement {
     switch (self.cur_token.type) {
         .Ident => {
             if (self.peekTokenIs(.DeclareAssign)) {
@@ -202,13 +194,13 @@ fn parseStatement(self: *Parser, ast_tree: *ast.Tree) !?ast.NodeIndex {
     }
 }
 
-fn parseExpressionStatement(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
-    const statement = ast_tree.addNode(.{
+fn parseExpressionStatement(self: *Parser, ast_tree: *ast.Tree) !ast.Statement {
+    const statement = ast.Statement{
         .expression = .{
             .token = self.cur_token,
             .expr = try self.parseExpression(ast_tree, .Lowest),
         },
-    });
+    };
 
     if (self.peekTokenIs(.Semi)) {
         self.nextToken();
@@ -217,14 +209,13 @@ fn parseExpressionStatement(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
     return statement;
 }
 
-fn parseDeclareAssignStatement(self: *Parser, ast_tree: *ast.Tree) !?ast.NodeIndex {
+fn parseDeclareAssignStatement(self: *Parser, ast_tree: *ast.Tree) !?ast.Statement {
     assert(self.cur_token.type == .DeclareAssign);
-
     const declare_assign_token = self.cur_token;
-    const ident = try ast_tree.addNode(.{ .ident = .{
+    const ident = ast.Expression.Ident{
         .token = self.prev_token,
         .value = self.prev_token.literal,
-    } });
+    };
 
     if (!self.expectPrevAndEat(.Ident)) {
         const err = try fmt.allocPrint(self.arena.allocator(), "Error parsing ':=' declare_assign. Expected identifier before declare_assign, but got: {s}\n", .{self.prev_token.literal});
@@ -237,16 +228,16 @@ fn parseDeclareAssignStatement(self: *Parser, ast_tree: *ast.Tree) !?ast.NodeInd
         self.nextToken();
     }
 
-    return try ast_tree.addNode(.{
+    return .{
         .declare_assign = .{
             .token = declare_assign_token,
             .ident = ident,
             .expr = expr,
         },
-    });
+    };
 }
 
-fn parseReturnStatement(self: *Parser, ast_tree: *ast.Tree) !?ast.NodeIndex {
+fn parseReturnStatement(self: *Parser, ast_tree: *ast.Tree) !?ast.Statement {
     assert(self.cur_token.type == .Return);
 
     const return_token = self.cur_token;
@@ -258,15 +249,15 @@ fn parseReturnStatement(self: *Parser, ast_tree: *ast.Tree) !?ast.NodeIndex {
         self.nextToken();
     }
 
-    return try ast_tree.addNode(.{
+    return .{
         .return_ = .{
             .token = return_token,
             .expr = expr,
         },
-    });
+    };
 }
 
-fn parseExpression(self: *Parser, ast_tree: *ast.Tree, precedence: Precedence) !ast.NodeIndex {
+fn parseExpression(self: *Parser, ast_tree: *ast.Tree, precedence: Precedence) !ast.Expression {
     const prefix = self.prefix_parse_fn_map.get(self.cur_token.type);
 
     if (prefix == null) {
@@ -285,64 +276,69 @@ fn parseExpression(self: *Parser, ast_tree: *ast.Tree, precedence: Precedence) !
 
         self.nextToken();
 
-        left_expr = try infix.?(self, ast_tree, left_expr);
+        left_expr = try infix.?(self, ast_tree, left_expr); // TODO: unsafe?
     }
     return left_expr;
 }
 
-fn parseIdentifier(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+fn parseIdentifier(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
+    _ = ast_tree;
     assert(self.cur_token.type == .Ident);
 
-    return ast_tree.addNode(.{
+    return .{
         .ident = .{
             .token = self.cur_token,
             .value = self.cur_token.literal,
         },
-    });
+    };
 }
 
-fn parseIntegerLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+fn parseIntegerLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
+    _ = ast_tree;
+
     const value = std.fmt.parseInt(i32, self.cur_token.literal, 0) catch |err| {
         const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "could not parse {s} as integer literal: {s}", .{ self.cur_token.literal, @errorName(err) });
         try self.errors.append(err_msg);
         return err;
     };
 
-    return ast_tree.addNode(.{
+    return .{
         .literal = .{
             .token = self.cur_token,
             .value = .{
                 .int = value,
             },
         },
-    });
+    };
 }
 
-fn parseBooleanLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+fn parseBooleanLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
+    _ = ast_tree;
     assert(self.cur_token.type == .False or self.cur_token.type == .True);
 
-    return ast_tree.addNode(.{
+    return .{
         .literal = .{
             .token = self.cur_token,
             .value = .{
                 .boolean = self.curTokenIs(.True),
             },
         },
-    });
+    };
 }
 
-fn parseNullLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+fn parseNullLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
+    _ = ast_tree;
     assert(self.cur_token.type == .Null);
 
-    return ast_tree.addNode(.{
+    return .{
         .literal = .{
             .token = self.cur_token,
             .value = .null,
         },
-    });
+    };
 }
 
-fn parseFunctionLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+fn parseFunctionLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
     const start_token = self.cur_token;
 
     if (!self.expectPeekAndEat(.OpenParen)) {
@@ -359,33 +355,31 @@ fn parseFunctionLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
         return error.FunctionLiteralParamsNotClosed;
     }
 
-    return ast_tree.addNode(.{
+    return .{
         .function = .{
             .token = start_token,
             .parameters = parameters,
             .body = try self.parseBlockStatement(ast_tree),
         },
-    });
+    };
 }
 
 // TODO: add typed parameters!
-fn parseFunctionParameters(self: *Parser, ast_tree: *ast.Tree) ![]ast.NodeIndex {
-    var parameters = std.ArrayList(ast.NodeIndex).init(ast_tree.arena.allocator());
+fn parseFunctionParameters(self: *Parser, ast_tree: *ast.Tree) !ArrayList(ast.Expression.Ident) {
+    var parameters = std.ArrayList(ast.Expression.Ident).init(ast_tree.arena.allocator());
 
     if (self.peekTokenIs(.CloseParen)) {
         self.nextToken();
-        return parameters.toOwnedSlice();
+        return parameters;
     }
 
     self.nextToken();
 
     {
-        const ident = try ast_tree.addNode(.{
-            .ident = .{
-                .token = self.cur_token,
-                .value = self.cur_token.literal,
-            },
-        });
+        const ident = ast.Expression.Ident{
+            .token = self.cur_token,
+            .value = self.cur_token.literal,
+        };
 
         try parameters.append(ident);
     }
@@ -393,12 +387,10 @@ fn parseFunctionParameters(self: *Parser, ast_tree: *ast.Tree) ![]ast.NodeIndex 
     while (self.peekTokenIs(.Comma)) {
         self.nextToken();
         self.nextToken();
-        const ident = try ast_tree.addNode(.{
-            .ident = .{
-                .token = self.cur_token,
-                .value = self.cur_token.literal,
-            },
-        });
+        const ident = ast.Expression.Ident{
+            .token = self.cur_token,
+            .value = self.cur_token.literal,
+        };
         try parameters.append(ident);
     }
 
@@ -407,10 +399,10 @@ fn parseFunctionParameters(self: *Parser, ast_tree: *ast.Tree) ![]ast.NodeIndex 
         return error.FunctionLiteralParamsNotClosed;
     }
 
-    return parameters.toOwnedSlice();
+    return parameters;
 }
 
-fn parseGroupedExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+fn parseGroupedExpression(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
     const start_token = self.cur_token;
 
     self.nextToken();
@@ -426,7 +418,7 @@ fn parseGroupedExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
     return expr;
 }
 
-fn parseIfExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+fn parseIfExpression(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
     const cur_token = self.cur_token;
 
     if (!self.expectPeekAndEat(.OpenParen)) {
@@ -437,7 +429,8 @@ fn parseIfExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
 
     self.nextToken();
 
-    const condition = try self.parseExpression(ast_tree, .Lowest);
+    const condition = try ast_tree.arena.allocator().create(ast.Expression);
+    condition.* = try self.parseExpression(ast_tree, .Lowest);
 
     if (!self.expectPeekAndEat(.CloseParen)) {
         const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any CloseParen after if expression, found: {any}.", .{self.cur_token.type});
@@ -452,7 +445,7 @@ fn parseIfExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
     }
 
     const consequence = try self.parseBlockStatement(ast_tree);
-    var alternative: ?ast.NodeIndex = null;
+    var alternative: ?ast.Statement.BlockStatement = null;
 
     if (self.peekTokenIs(.Else)) {
         self.nextToken();
@@ -462,25 +455,26 @@ fn parseIfExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
             try self.errors.append(err_msg);
             return error.ParseIfExpressionNoBlockOpened;
         }
+
         alternative = try self.parseBlockStatement(ast_tree);
     }
 
-    return try ast_tree.addNode(.{
+    return .{
         .if_ = .{
             .token = cur_token,
             .condition = condition,
             .consequence = consequence,
             .alternative = alternative,
         },
-    });
+    };
 }
 
-fn parseBlockStatement(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+fn parseBlockStatement(self: *Parser, ast_tree: *ast.Tree) !ast.Statement.BlockStatement {
     const start_token = self.cur_token;
 
     self.nextToken();
 
-    var statements = std.ArrayList(ast.NodeIndex).init(ast_tree.arena.allocator());
+    var statements = std.ArrayList(ast.Statement).init(ast_tree.arena.allocator());
 
     while (!self.curTokenIs(.CloseBrace) and !self.curTokenIs(.Eof)) {
         const statement = try self.parseStatement(ast_tree);
@@ -491,66 +485,72 @@ fn parseBlockStatement(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
         self.nextToken();
     }
 
-    return ast_tree.addNode(.{
-        .block = .{
-            .token = start_token,
-            .statements = try statements.toOwnedSlice(),
-        },
-    });
+    return .{
+        .token = start_token,
+        .statements = statements,
+    };
 }
 
-fn parsePrefixExpression(self: *Parser, ast_tree: *ast.Tree) !ast.NodeIndex {
+fn parsePrefixExpression(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
     const operator = self.cur_token.literal;
     const token = self.cur_token;
 
     self.nextToken();
 
-    const right = try self.parseExpression(ast_tree, .Prefix);
+    const right = try ast_tree.arena.allocator().create(ast.Expression);
+    right.* = try self.parseExpression(ast_tree, .Prefix);
 
-    return ast_tree.addNode(.{
+    return .{
         .prefix = .{
             .operator = operator,
             .token = token,
             .right = right,
         },
-    });
+    };
 }
 
-fn parseInfixExpression(self: *Parser, ast_tree: *ast.Tree, left: ast.NodeIndex) !ast.NodeIndex {
+fn parseInfixExpression(self: *Parser, ast_tree: *ast.Tree, left: ast.Expression) !ast.Expression {
     const token = self.cur_token;
     const operator = self.cur_token.literal;
 
     const precedence = self.curPrecedence();
     self.nextToken();
 
-    const parsed_right = try self.parseExpression(ast_tree, precedence);
+    const right = try ast_tree.arena.allocator().create(ast.Expression);
+    right.* = try self.parseExpression(ast_tree, precedence);
 
-    return ast_tree.addNode(.{
+    const left_expr = try ast_tree.arena.allocator().create(ast.Expression);
+    left_expr.* = left;
+
+    return .{
         .infix = .{
             .token = token,
             .operator = operator,
-            .left = left,
-            .right = parsed_right,
+            .left = left_expr,
+            .right = right,
         },
-    });
+    };
 }
 
-fn parseCallExpression(self: *Parser, ast_tree: *ast.Tree, function: ast.NodeIndex) !ast.NodeIndex {
-    return ast_tree.addNode(.{
+fn parseCallExpression(self: *Parser, ast_tree: *ast.Tree, function: ast.Expression) !ast.Expression {
+    const func = try ast_tree.arena.allocator().create(ast.Expression);
+    func.* = function;
+
+    return .{
         .call = .{
             .token = self.cur_token,
-            .function = function,
+            .function = func,
             .arguments = try self.parseCallArguments(ast_tree),
         },
-    });
+    };
 }
 
-fn parseCallArguments(self: *Parser, ast_tree: *ast.Tree) ![]ast.NodeIndex {
-    var args = ArrayList(ast.NodeIndex).init(ast_tree.arena.allocator());
+fn parseCallArguments(self: *Parser, ast_tree: *ast.Tree) !ArrayList(ast.Expression) {
+    var args = ArrayList(ast.Expression).init(ast_tree.arena.allocator());
 
     if (self.peekTokenIs(.CloseParen)) {
         self.nextToken();
-        return args.toOwnedSlice();
+        return args;
     }
 
     self.nextToken();
@@ -567,7 +567,7 @@ fn parseCallArguments(self: *Parser, ast_tree: *ast.Tree) ![]ast.NodeIndex {
         return error.CallArgumentsNotClosed;
     }
 
-    return args.toOwnedSlice();
+    return args;
 }
 
 // ------------- Testing ---------------
@@ -582,10 +582,11 @@ fn testTreeString(alloc: std.mem.Allocator, input_to_parse: []const u8, expected
     };
     defer ast_tree.deinit();
 
-    const tree_string = try ast_tree.toString(testing.allocator);
-    defer testing.allocator.free(tree_string);
+    var tree_string = std.ArrayList(u8).init(std.testing.allocator);
+    defer tree_string.deinit();
+    try std.json.stringify(ast_tree, .{ .whitespace = .indent_2 }, tree_string.writer());
 
-    try testing.expectEqualStrings(expected_tree_str, tree_string);
+    try testing.expectEqualStrings(expected_tree_str, tree_string.items);
 }
 
 test "DeclareAssign Statement" {
@@ -593,64 +594,55 @@ test "DeclareAssign Statement" {
         .{
             "x := 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "declare_assign",
-            \\        "identifier": {
-            \\          "type": "ident",
-            \\          "value": "x"
-            \\        },
-            \\        "expression": {
-            \\          "type": "literal",
-            \\          "value": 5
-            \\        }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "declare_assign",
+            \\      "identifier": {
+            \\        "type": "ident",
+            \\        "value": "x"
+            \\      },
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": 5
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "y := true;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "declare_assign",
-            \\        "identifier": {
-            \\          "type": "ident",
-            \\          "value": "y"
-            \\        },
-            \\        "expression": {
-            \\          "type": "literal",
-            \\          "value": true
-            \\        }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "declare_assign",
+            \\      "identifier": {
+            \\        "type": "ident",
+            \\        "value": "y"
+            \\      },
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": true
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "foobar := y;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "declare_assign",
-            \\        "identifier": {
-            \\          "type": "ident",
-            \\          "value": "foobar"
-            \\        },
-            \\        "expression": {
-            \\          "type": "ident",
-            \\          "value": "y"
-            \\        }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "declare_assign",
+            \\      "identifier": {
+            \\        "type": "ident",
+            \\        "value": "foobar"
+            \\      },
+            \\      "expression": {
+            \\        "type": "ident",
+            \\        "value": "y"
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -665,18 +657,15 @@ test "Return Statement" {
         .{
             "return 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "return_",
-            \\        "expression": {
-            \\          "type": "literal",
-            \\          "value": 5
-            \\        }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "return",
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": 5
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -691,18 +680,15 @@ test "Statement Expression" {
         .{
             "foobar;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "ident",
-            \\          "value": "foobar"
-            \\        }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "ident",
+            \\        "value": "foobar"
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -717,18 +703,15 @@ test "Integer Literal Expression" {
         .{
             "5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "literal",
-            \\          "value": 5
-            \\        }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": 5
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -743,43 +726,37 @@ test "Prefix Expression" {
         .{
             "!5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "prefix",
-            \\          "operator": "!",
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "prefix",
+            \\        "operator": "!",
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "-5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "prefix",
-            \\          "operator": "-",
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "prefix",
+            \\        "operator": "-",
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -794,277 +771,244 @@ test "Infix Expression" {
         .{
             "5 + 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "+",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "+",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
             ,
         },
         .{
             "5 - 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "-",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "-",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "5 * 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "*",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "*",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "5 / 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "/",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "/",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "5 > 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": ">",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": ">",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "5 < 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "<",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "<",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "5 == 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "==",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "==",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "5 != 5;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "!=",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "!=",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "true == true;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "==",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": true
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": true
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "==",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": true
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": true
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "false == false;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "==",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": false
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": false
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "==",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": false
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": false
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "true != false;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "!=",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": true
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": false
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "!=",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": true
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": false
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -1079,165 +1023,61 @@ test "Operator Precedence" {
         .{
             "-a * b", // ((-a) * b)
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "*",
-            \\          "left": {
-            \\            "type": "prefix",
-            \\            "operator": "-",
-            \\            "right": {
-            \\              "type": "ident",
-            \\              "value": "a"
-            \\            }
-            \\          },
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "*",
+            \\        "left": {
+            \\          "type": "prefix",
+            \\          "operator": "-",
             \\          "right": {
             \\            "type": "ident",
-            \\            "value": "b"
+            \\            "value": "a"
             \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "ident",
+            \\          "value": "b"
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "!-a", // (!(-a))
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "prefix",
+            \\        "operator": "!",
+            \\        "right": {
             \\          "type": "prefix",
-            \\          "operator": "!",
+            \\          "operator": "-",
             \\          "right": {
-            \\            "type": "prefix",
-            \\            "operator": "-",
-            \\            "right": {
-            \\              "type": "ident",
-            \\              "value": "a"
-            \\            }
+            \\            "type": "ident",
+            \\            "value": "a"
             \\          }
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "a + b + c", // ((a + b) + c)
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "+",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": "+",
-            \\            "left": {
-            \\              "type": "ident",
-            \\              "value": "a"
-            \\            },
-            \\            "right": {
-            \\              "type": "ident",
-            \\              "value": "b"
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "ident",
-            \\            "value": "c"
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "a * b * c", // ((a * b) * c)
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "*",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": "*",
-            \\            "left": {
-            \\              "type": "ident",
-            \\              "value": "a"
-            \\            },
-            \\            "right": {
-            \\              "type": "ident",
-            \\              "value": "b"
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "ident",
-            \\            "value": "c"
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "a * b / c", // ((a * b) / c)
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "/",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": "*",
-            \\            "left": {
-            \\              "type": "ident",
-            \\              "value": "a"
-            \\            },
-            \\            "right": {
-            \\              "type": "ident",
-            \\              "value": "b"
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "ident",
-            \\            "value": "c"
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "a + b / c", // (a + (b / c))
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "+",
+            \\        "left": {
             \\          "type": "infix",
             \\          "operator": "+",
             \\          "left": {
@@ -1245,45 +1085,604 @@ test "Operator Precedence" {
             \\            "value": "a"
             \\          },
             \\          "right": {
-            \\            "type": "infix",
-            \\            "operator": "/",
-            \\            "left": {
-            \\              "type": "ident",
-            \\              "value": "b"
-            \\            },
-            \\            "right": {
-            \\              "type": "ident",
-            \\              "value": "c"
-            \\            }
+            \\            "type": "ident",
+            \\            "value": "b"
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "ident",
+            \\          "value": "c"
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "a * b * c", // ((a * b) * c)
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "*",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": "*",
+            \\          "left": {
+            \\            "type": "ident",
+            \\            "value": "a"
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "b"
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "ident",
+            \\          "value": "c"
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "a * b / c", // ((a * b) / c)
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "/",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": "*",
+            \\          "left": {
+            \\            "type": "ident",
+            \\            "value": "a"
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "b"
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "ident",
+            \\          "value": "c"
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "a + b / c", // (a + (b / c))
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "+",
+            \\        "left": {
+            \\          "type": "ident",
+            \\          "value": "a"
+            \\        },
+            \\        "right": {
+            \\          "type": "infix",
+            \\          "operator": "/",
+            \\          "left": {
+            \\            "type": "ident",
+            \\            "value": "b"
+            \\          },
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "c"
             \\          }
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "a + b * c + d / e - f", // (((a + (b * c)) + (d / e)) - f)
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "-",
+            \\        "left": {
             \\          "type": "infix",
-            \\          "operator": "-",
+            \\          "operator": "+",
             \\          "left": {
             \\            "type": "infix",
             \\            "operator": "+",
             \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            },
+            \\            "right": {
             \\              "type": "infix",
-            \\              "operator": "+",
+            \\              "operator": "*",
             \\              "left": {
             \\                "type": "ident",
-            \\                "value": "a"
+            \\                "value": "b"
             \\              },
             \\              "right": {
+            \\                "type": "ident",
+            \\                "value": "c"
+            \\              }
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "/",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "d"
+            \\            },
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "e"
+            \\            }
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "ident",
+            \\          "value": "f"
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "3 + 4; -5 * 5", // (3 + 4)((-5) * 5)
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "+",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 3
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 4
+            \\        }
+            \\      }
+            \\    },
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "*",
+            \\        "left": {
+            \\          "type": "prefix",
+            \\          "operator": "-",
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 5
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "5 > 4 == 3 < 4", // ((5 > 4) == (3 < 4))
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "==",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": ">",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 4
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "infix",
+            \\          "operator": "<",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 3
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 4
+            \\          }
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "5 < 4 != 3 > 4", // ((5 < 4) != (3 > 4))
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "!=",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": "<",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 4
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "infix",
+            \\          "operator": ">",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 3
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 4
+            \\          }
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "3 + 4 * 5 == 3 * 1 + 4 * 5", // (( 3 + (4 * 5)) == ((3 * 1) + (4 * 5)))
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "==",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 3
+            \\          },
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 4
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 3
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 1
+            \\            }
+            \\          },
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 4
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          }
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "true", // true
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": true
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "false", // false
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": false
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "3 > 5 == false", // ((3 > 5) == false)
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "==",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": ">",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 3
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": false
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "3 < 5 == true", // ((3 < 5) == true)
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "==",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": "<",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 3
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": true
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "1 + (2 + 3) + 4", // ((1 + (2 + 3)) + 4)
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "+",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 1
+            \\          },
+            \\          "right": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 2
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 3
+            \\            }
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 4
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "(5 + 5) * 2", // ((5 + 5) * 2)
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "*",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "literal",
+            \\          "value": 2
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "2 / (5 + 5)", // (2 / (5 + 5))
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "/",
+            \\        "left": {
+            \\          "type": "literal",
+            \\          "value": 2
+            \\        },
+            \\        "right": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "-(5 + 5)", // (-(5 + 5))
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "prefix",
+            \\        "operator": "-",
+            \\        "right": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 5
+            \\          }
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "!(true == true)", // (!(true == true))
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "prefix",
+            \\        "operator": "!",
+            \\        "right": {
+            \\          "type": "infix",
+            \\          "operator": "==",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": true
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": true
+            \\          }
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "a + add(b * c) + d", // (( a + add((b * c))) + d)
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "+",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "ident",
+            \\            "value": "a"
+            \\          },
+            \\          "right": {
+            \\            "type": "call",
+            \\            "function": {
+            \\              "type": "ident",
+            \\              "value": "add"
+            \\            },
+            \\            "arguments": [
+            \\              {
             \\                "type": "infix",
             \\                "operator": "*",
             \\                "left": {
@@ -1295,683 +1694,159 @@ test "Operator Precedence" {
             \\                  "value": "c"
             \\                }
             \\              }
-            \\            },
-            \\            "right": {
-            \\              "type": "infix",
-            \\              "operator": "/",
-            \\              "left": {
-            \\                "type": "ident",
-            \\                "value": "d"
-            \\              },
-            \\              "right": {
-            \\                "type": "ident",
-            \\                "value": "e"
-            \\              }
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "ident",
-            \\            "value": "f"
+            \\            ]
             \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "ident",
+            \\          "value": "d"
             \\        }
             \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "3 + 4; -5 * 5", // (3 + 4)((-5) * 5)
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "+",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 3
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 4
-            \\          }
-            \\        }
-            \\      },
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "*",
-            \\          "left": {
-            \\            "type": "prefix",
-            \\            "operator": "-",
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 5
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "5 > 4 == 3 < 4", // ((5 > 4) == (3 < 4))
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "==",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": ">",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 4
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "infix",
-            \\            "operator": "<",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 3
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 4
-            \\            }
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "5 < 4 != 3 > 4", // ((5 < 4) != (3 > 4))
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "!=",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": "<",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 4
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "infix",
-            \\            "operator": ">",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 3
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 4
-            \\            }
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "3 + 4 * 5 == 3 * 1 + 4 * 5", // (( 3 + (4 * 5)) == ((3 * 1) + (4 * 5)))
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "==",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": "+",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 3
-            \\            },
-            \\            "right": {
-            \\              "type": "infix",
-            \\              "operator": "*",
-            \\              "left": {
-            \\                "type": "literal",
-            \\                "value": 4
-            \\              },
-            \\              "right": {
-            \\                "type": "literal",
-            \\                "value": 5
-            \\              }
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "infix",
-            \\            "operator": "+",
-            \\            "left": {
-            \\              "type": "infix",
-            \\              "operator": "*",
-            \\              "left": {
-            \\                "type": "literal",
-            \\                "value": 3
-            \\              },
-            \\              "right": {
-            \\                "type": "literal",
-            \\                "value": 1
-            \\              }
-            \\            },
-            \\            "right": {
-            \\              "type": "infix",
-            \\              "operator": "*",
-            \\              "left": {
-            \\                "type": "literal",
-            \\                "value": 4
-            \\              },
-            \\              "right": {
-            \\                "type": "literal",
-            \\                "value": 5
-            \\              }
-            \\            }
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "true", // true
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "literal",
-            \\          "value": true
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "false", // false
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "literal",
-            \\          "value": false
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "3 > 5 == false", // ((3 > 5) == false)
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "==",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": ">",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 3
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": false
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "3 < 5 == true", // ((3 < 5) == true)
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "==",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": "<",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 3
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": true
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "1 + (2 + 3) + 4", // ((1 + (2 + 3)) + 4)
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "+",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": "+",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 1
-            \\            },
-            \\            "right": {
-            \\              "type": "infix",
-            \\              "operator": "+",
-            \\              "left": {
-            \\                "type": "literal",
-            \\                "value": 2
-            \\              },
-            \\              "right": {
-            \\                "type": "literal",
-            \\                "value": 3
-            \\              }
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 4
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "(5 + 5) * 2", // ((5 + 5) * 2)
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "*",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": "+",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "literal",
-            \\            "value": 2
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "2 / (5 + 5)", // (2 / (5 + 5))
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "/",
-            \\          "left": {
-            \\            "type": "literal",
-            \\            "value": 2
-            \\          },
-            \\          "right": {
-            \\            "type": "infix",
-            \\            "operator": "+",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            }
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "-(5 + 5)", // (-(5 + 5))
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "prefix",
-            \\          "operator": "-",
-            \\          "right": {
-            \\            "type": "infix",
-            \\            "operator": "+",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": 5
-            \\            }
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "!(true == true)", // (!(true == true))
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "prefix",
-            \\          "operator": "!",
-            \\          "right": {
-            \\            "type": "infix",
-            \\            "operator": "==",
-            \\            "left": {
-            \\              "type": "literal",
-            \\              "value": true
-            \\            },
-            \\            "right": {
-            \\              "type": "literal",
-            \\              "value": true
-            \\            }
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
-            \\}
-        },
-        .{
-            "a + add(b * c) + d", // (( a + add((b * c))) + d)
-            \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "+",
-            \\          "left": {
-            \\            "type": "infix",
-            \\            "operator": "+",
-            \\            "left": {
-            \\              "type": "ident",
-            \\              "value": "a"
-            \\            },
-            \\            "right": {
-            \\              "type": "call",
-            \\              "function": {
-            \\                "type": "ident",
-            \\                "value": "add"
-            \\              },
-            \\              "arguments": [
-            \\                {
-            \\                  "type": "infix",
-            \\                  "operator": "*",
-            \\                  "left": {
-            \\                    "type": "ident",
-            \\                    "value": "b"
-            \\                  },
-            \\                  "right": {
-            \\                    "type": "ident",
-            \\                    "value": "c"
-            \\                  }
-            \\                }
-            \\              ]
-            \\            }
-            \\          },
-            \\          "right": {
-            \\            "type": "ident",
-            \\            "value": "d"
-            \\          }
-            \\        }
-            \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "add(a, b, 1, 2 * 3, 4 + 5, add (6, 7 * 8))", // add(a, b, 1, (2 * 3), (4 + 5), add(6, 7 * 8))
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "call",
-            \\          "function": {
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "call",
+            \\        "function": {
+            \\          "type": "ident",
+            \\          "value": "add"
+            \\        },
+            \\        "arguments": [
+            \\          {
             \\            "type": "ident",
-            \\            "value": "add"
+            \\            "value": "a"
             \\          },
-            \\          "arguments": [
-            \\            {
-            \\              "type": "ident",
-            \\              "value": "a"
-            \\            },
-            \\            {
-            \\              "type": "ident",
-            \\              "value": "b"
-            \\            },
-            \\            {
+            \\          {
+            \\            "type": "ident",
+            \\            "value": "b"
+            \\          },
+            \\          {
+            \\            "type": "literal",
+            \\            "value": 1
+            \\          },
+            \\          {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
             \\              "type": "literal",
-            \\              "value": 1
+            \\              "value": 2
             \\            },
-            \\            {
-            \\              "type": "infix",
-            \\              "operator": "*",
-            \\              "left": {
-            \\                "type": "literal",
-            \\                "value": 2
-            \\              },
-            \\              "right": {
-            \\                "type": "literal",
-            \\                "value": 3
-            \\              }
-            \\            },
-            \\            {
-            \\              "type": "infix",
-            \\              "operator": "+",
-            \\              "left": {
-            \\                "type": "literal",
-            \\                "value": 4
-            \\              },
-            \\              "right": {
-            \\                "type": "literal",
-            \\                "value": 5
-            \\              }
-            \\            },
-            \\            {
-            \\              "type": "call",
-            \\              "function": {
-            \\                "type": "ident",
-            \\                "value": "add"
-            \\              },
-            \\              "arguments": [
-            \\                {
-            \\                  "type": "literal",
-            \\                  "value": 6
-            \\                },
-            \\                {
-            \\                  "type": "infix",
-            \\                  "operator": "*",
-            \\                  "left": {
-            \\                    "type": "literal",
-            \\                    "value": 7
-            \\                  },
-            \\                  "right": {
-            \\                    "type": "literal",
-            \\                    "value": 8
-            \\                  }
-            \\                }
-            \\              ]
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 3
             \\            }
-            \\          ]
-            \\        }
+            \\          },
+            \\          {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 4
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          },
+            \\          {
+            \\            "type": "call",
+            \\            "function": {
+            \\              "type": "ident",
+            \\              "value": "add"
+            \\            },
+            \\            "arguments": [
+            \\              {
+            \\                "type": "literal",
+            \\                "value": 6
+            \\              },
+            \\              {
+            \\                "type": "infix",
+            \\                "operator": "*",
+            \\                "left": {
+            \\                  "type": "literal",
+            \\                  "value": 7
+            \\                },
+            \\                "right": {
+            \\                  "type": "literal",
+            \\                  "value": 8
+            \\                }
+            \\              }
+            \\            ]
+            \\          }
+            \\        ]
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "add(a + b + c * d / f + g)", // add((((a + b) + ((c + d) / f)) + g))
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "call",
-            \\          "function": {
-            \\            "type": "ident",
-            \\            "value": "add"
-            \\          },
-            \\          "arguments": [
-            \\            {
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "call",
+            \\        "function": {
+            \\          "type": "ident",
+            \\          "value": "add"
+            \\        },
+            \\        "arguments": [
+            \\          {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
             \\              "type": "infix",
             \\              "operator": "+",
             \\              "left": {
             \\                "type": "infix",
             \\                "operator": "+",
             \\                "left": {
-            \\                  "type": "infix",
-            \\                  "operator": "+",
-            \\                  "left": {
-            \\                    "type": "ident",
-            \\                    "value": "a"
-            \\                  },
-            \\                  "right": {
-            \\                    "type": "ident",
-            \\                    "value": "b"
-            \\                  }
+            \\                  "type": "ident",
+            \\                  "value": "a"
             \\                },
             \\                "right": {
-            \\                  "type": "infix",
-            \\                  "operator": "/",
-            \\                  "left": {
-            \\                    "type": "infix",
-            \\                    "operator": "*",
-            \\                    "left": {
-            \\                      "type": "ident",
-            \\                      "value": "c"
-            \\                    },
-            \\                    "right": {
-            \\                      "type": "ident",
-            \\                      "value": "d"
-            \\                    }
-            \\                  },
-            \\                  "right": {
-            \\                    "type": "ident",
-            \\                    "value": "f"
-            \\                  }
+            \\                  "type": "ident",
+            \\                  "value": "b"
             \\                }
             \\              },
             \\              "right": {
-            \\                "type": "ident",
-            \\                "value": "g"
+            \\                "type": "infix",
+            \\                "operator": "/",
+            \\                "left": {
+            \\                  "type": "infix",
+            \\                  "operator": "*",
+            \\                  "left": {
+            \\                    "type": "ident",
+            \\                    "value": "c"
+            \\                  },
+            \\                  "right": {
+            \\                    "type": "ident",
+            \\                    "value": "d"
+            \\                  }
+            \\                },
+            \\                "right": {
+            \\                  "type": "ident",
+            \\                  "value": "f"
+            \\                }
             \\              }
+            \\            },
+            \\            "right": {
+            \\              "type": "ident",
+            \\              "value": "g"
             \\            }
-            \\          ]
-            \\        }
+            \\          }
+            \\        ]
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -1986,46 +1861,40 @@ test "Boolean Literal Expression" {
         .{
             "true;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "literal",
-            \\          "value": true
-            \\        }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": true
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
             ,
             "false;",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "infix",
-            \\          "operator": "*",
-            \\          "left": {
-            \\            "type": "prefix",
-            \\            "operator": "-",
-            \\            "right": {
-            \\              "type": "ident",
-            \\              "value": "a"
-            \\            }
-            \\          },
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "*",
+            \\        "left": {
+            \\          "type": "prefix",
+            \\          "operator": "-",
             \\          "right": {
             \\            "type": "ident",
-            \\            "value": "b"
+            \\            "value": "a"
             \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "ident",
+            \\          "value": "b"
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -2040,45 +1909,42 @@ test "If Expression" {
         .{
             "input := if (x < y) { x };",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "declare_assign",
-            \\        "identifier": {
-            \\          "type": "ident",
-            \\          "value": "input"
-            \\        },
-            \\        "expression": {
-            \\          "type": "if_",
-            \\          "condition": {
-            \\            "type": "infix",
-            \\            "operator": "<",
-            \\            "left": {
-            \\              "type": "ident",
-            \\              "value": "x"
-            \\            },
-            \\            "right": {
-            \\              "type": "ident",
-            \\              "value": "y"
-            \\            }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "declare_assign",
+            \\      "identifier": {
+            \\        "type": "ident",
+            \\        "value": "input"
+            \\      },
+            \\      "expression": {
+            \\        "type": "if",
+            \\        "condition": {
+            \\          "type": "infix",
+            \\          "operator": "<",
+            \\          "left": {
+            \\            "type": "ident",
+            \\            "value": "x"
             \\          },
-            \\          "consequence": {
-            \\            "type": "block",
-            \\            "statements": [
-            \\              {
-            \\                "type": "expression",
-            \\                "expression": {
-            \\                  "type": "ident",
-            \\                  "value": "x"
-            \\                }
-            \\              }
-            \\            ]
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "y"
             \\          }
+            \\        },
+            \\        "consequence": {
+            \\          "type": "block",
+            \\          "statements": [
+            \\            {
+            \\              "type": "expression_statement",
+            \\              "expression": {
+            \\                "type": "ident",
+            \\                "value": "x"
+            \\              }
+            \\            }
+            \\          ]
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -2092,57 +1958,54 @@ test "If-Else Expression" {
         .{
             "input := if (x < y) { x } else { null };",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "declare_assign",
-            \\        "identifier": {
-            \\          "type": "ident",
-            \\          "value": "input"
-            \\        },
-            \\        "expression": {
-            \\          "type": "if_",
-            \\          "condition": {
-            \\            "type": "infix",
-            \\            "operator": "<",
-            \\            "left": {
-            \\              "type": "ident",
-            \\              "value": "x"
-            \\            },
-            \\            "right": {
-            \\              "type": "ident",
-            \\              "value": "y"
-            \\            }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "declare_assign",
+            \\      "identifier": {
+            \\        "type": "ident",
+            \\        "value": "input"
+            \\      },
+            \\      "expression": {
+            \\        "type": "if",
+            \\        "condition": {
+            \\          "type": "infix",
+            \\          "operator": "<",
+            \\          "left": {
+            \\            "type": "ident",
+            \\            "value": "x"
             \\          },
-            \\          "consequence": {
-            \\            "type": "block",
-            \\            "statements": [
-            \\              {
-            \\                "type": "expression",
-            \\                "expression": {
-            \\                  "type": "ident",
-            \\                  "value": "x"
-            \\                }
-            \\              }
-            \\            ]
-            \\          },
-            \\          "alternative": {
-            \\            "type": "block",
-            \\            "statements": [
-            \\              {
-            \\                "type": "expression",
-            \\                "expression": {
-            \\                  "type": "literal",
-            \\                  "value": null
-            \\                }
-            \\              }
-            \\            ]
+            \\          "right": {
+            \\            "type": "ident",
+            \\            "value": "y"
             \\          }
+            \\        },
+            \\        "consequence": {
+            \\          "type": "block",
+            \\          "statements": [
+            \\            {
+            \\              "type": "expression_statement",
+            \\              "expression": {
+            \\                "type": "ident",
+            \\                "value": "x"
+            \\              }
+            \\            }
+            \\          ]
+            \\        },
+            \\        "alternative": {
+            \\          "type": "block",
+            \\          "statements": [
+            \\            {
+            \\              "type": "expression_statement",
+            \\              "expression": {
+            \\                "type": "literal",
+            \\                "value": null
+            \\              }
+            \\            }
+            \\          ]
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -2157,128 +2020,116 @@ test "Function Literal + parameters" {
         .{
             "fn(x, y) { x + y; };",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "function",
-            \\          "parameters": [
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "function",
+            \\        "parameters": [
+            \\          {
+            \\            "type": "ident",
+            \\            "value": "x"
+            \\          },
+            \\          {
+            \\            "type": "ident",
+            \\            "value": "y"
+            \\          }
+            \\        ],
+            \\        "body": {
+            \\          "type": "block",
+            \\          "statements": [
             \\            {
-            \\              "type": "ident",
-            \\              "value": "x"
-            \\            },
-            \\            {
-            \\              "type": "ident",
-            \\              "value": "y"
-            \\            }
-            \\          ],
-            \\          "body": {
-            \\            "type": "block",
-            \\            "statements": [
-            \\              {
-            \\                "type": "expression",
-            \\                "expression": {
-            \\                  "type": "infix",
-            \\                  "operator": "+",
-            \\                  "left": {
-            \\                    "type": "ident",
-            \\                    "value": "x"
-            \\                  },
-            \\                  "right": {
-            \\                    "type": "ident",
-            \\                    "value": "y"
-            \\                  }
+            \\              "type": "expression_statement",
+            \\              "expression": {
+            \\                "type": "infix",
+            \\                "operator": "+",
+            \\                "left": {
+            \\                  "type": "ident",
+            \\                  "value": "x"
+            \\                },
+            \\                "right": {
+            \\                  "type": "ident",
+            \\                  "value": "y"
             \\                }
             \\              }
-            \\            ]
-            \\          }
+            \\            }
+            \\          ]
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "fn() {};",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "function",
-            \\          "parameters": [],
-            \\          "body": {
-            \\            "type": "block",
-            \\            "statements": []
-            \\          }
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "function",
+            \\        "parameters": [],
+            \\        "body": {
+            \\          "type": "block",
+            \\          "statements": []
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "fn(x) {};",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "function",
-            \\          "parameters": [
-            \\            {
-            \\              "type": "ident",
-            \\              "value": "x"
-            \\            }
-            \\          ],
-            \\          "body": {
-            \\            "type": "block",
-            \\            "statements": []
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "function",
+            \\        "parameters": [
+            \\          {
+            \\            "type": "ident",
+            \\            "value": "x"
             \\          }
+            \\        ],
+            \\        "body": {
+            \\          "type": "block",
+            \\          "statements": []
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
         .{
             "fn(x, y, z) {};",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "function",
-            \\          "parameters": [
-            \\            {
-            \\              "type": "ident",
-            \\              "value": "x"
-            \\            },
-            \\            {
-            \\              "type": "ident",
-            \\              "value": "y"
-            \\            },
-            \\            {
-            \\              "type": "ident",
-            \\              "value": "z"
-            \\            }
-            \\          ],
-            \\          "body": {
-            \\            "type": "block",
-            \\            "statements": []
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "function",
+            \\        "parameters": [
+            \\          {
+            \\            "type": "ident",
+            \\            "value": "x"
+            \\          },
+            \\          {
+            \\            "type": "ident",
+            \\            "value": "y"
+            \\          },
+            \\          {
+            \\            "type": "ident",
+            \\            "value": "z"
             \\          }
+            \\        ],
+            \\        "body": {
+            \\          "type": "block",
+            \\          "statements": []
             \\        }
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };
@@ -2293,51 +2144,48 @@ test "Call Expression" {
         .{
             "add(1, 2 * 3, 4 + 5);",
             \\{
-            \\  "root": {
-            \\    "type": "root",
-            \\    "statements": [
-            \\      {
-            \\        "type": "expression",
-            \\        "expression": {
-            \\          "type": "call",
-            \\          "function": {
-            \\            "type": "ident",
-            \\            "value": "add"
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "call",
+            \\        "function": {
+            \\          "type": "ident",
+            \\          "value": "add"
+            \\        },
+            \\        "arguments": [
+            \\          {
+            \\            "type": "literal",
+            \\            "value": 1
             \\          },
-            \\          "arguments": [
-            \\            {
+            \\          {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
             \\              "type": "literal",
-            \\              "value": 1
+            \\              "value": 2
             \\            },
-            \\            {
-            \\              "type": "infix",
-            \\              "operator": "*",
-            \\              "left": {
-            \\                "type": "literal",
-            \\                "value": 2
-            \\              },
-            \\              "right": {
-            \\                "type": "literal",
-            \\                "value": 3
-            \\              }
-            \\            },
-            \\            {
-            \\              "type": "infix",
-            \\              "operator": "+",
-            \\              "left": {
-            \\                "type": "literal",
-            \\                "value": 4
-            \\              },
-            \\              "right": {
-            \\                "type": "literal",
-            \\                "value": 5
-            \\              }
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 3
             \\            }
-            \\          ]
-            \\        }
+            \\          },
+            \\          {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 4
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          }
+            \\        ]
             \\      }
-            \\    ]
-            \\  }
+            \\    }
+            \\  ]
             \\}
         },
     };

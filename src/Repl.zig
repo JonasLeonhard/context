@@ -81,7 +81,7 @@ pub fn start_eval(self: *Repl, alloc: std.mem.Allocator) !void {
         var parser = try Parser.init(alloc, lexer);
         defer parser.deinit();
 
-        var ast_tree = parser.parseTree(alloc) catch |err| {
+        var ast_tree = parser.parseTree(env.arena.allocator()) catch |err| {
             try tty_config.setColor(stdout.writer(), .red);
             try stdout.writer().print("{any} when parsing: {s}\n", .{ err, user_input });
 
@@ -89,8 +89,6 @@ pub fn start_eval(self: *Repl, alloc: std.mem.Allocator) !void {
             try tty_config.setColor(stdout.writer(), .reset);
             continue;
         };
-
-        defer ast_tree.deinit();
 
         if (ast_tree.root) |root| {
             const root_node: ast.Node = ast_tree.nodes.items[root];
