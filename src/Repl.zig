@@ -1,106 +1,31 @@
 const std = @import("std");
-const Lexer = @import("Lexer.zig");
-const Parser = @import("Parser.zig");
-const Evaluator = @import("Evaluator.zig");
-const Environment = @import("Environment.zig");
-const ast = @import("ast.zig");
 
-/// Read-Parse-Print-Loop, a tree walking interpreter
 const Repl = @This();
 
-evaluator: Evaluator,
+alloc: std.mem.Allocator,
+stdin: std.io.AnyReader,
+stdout: std.io.AnyWriter,
 
-pub fn init(alloc: std.mem.Allocator) Repl {
+pub fn init(alloc: std.mem.Allocator, stdin: std.io.AnyReader, stdout: std.io.AnyWriter) Repl {
     return Repl{
-        .evaluator = Evaluator.init(alloc),
+        .alloc = alloc,
+        .stdin = stdin,
+        .stdout = stdout,
     };
 }
 
-pub fn deinit(self: Repl) void {
-    self.evaluator.deinit();
+pub fn eval(self: Repl, filepath: []const u8) !void {
+    try self.stdout.print("TODO: start eval of filepath: {s}", .{filepath});
 }
 
-/// Start repl to evaluate to ast
-pub fn start_eval_to_ast(self: Repl, alloc: std.mem.Allocator) !void {
-    _ = self; // TODO
-    const stdout = std.io.getStdOut();
-    const tty_config = std.io.tty.detectConfig(stdout);
-
-    try tty_config.setColor(stdout.writer(), .green);
-    try stdout.writer().print("started REPL, eval to ast", .{});
-    try tty_config.setColor(stdout.writer(), .reset);
-    try stdout.writer().print(": \n", .{});
-
-    const stdin = std.io.getStdIn().reader();
-    while (true) {
-        const user_input = try stdin.readUntilDelimiterAlloc(alloc, '\n', 1024);
-        defer alloc.free(user_input);
-
-        const lexer = Lexer.init(user_input);
-        var parser = try Parser.init(alloc, lexer);
-        defer parser.deinit();
-
-        var ast_tree = parser.parseTree(alloc) catch |err| {
-            try tty_config.setColor(stdout.writer(), .red);
-            try stdout.writer().print("{any} when parsing: {s}\n", .{ err, user_input });
-
-            parser.checkParserErrors();
-            try tty_config.setColor(stdout.writer(), .reset);
-            continue;
-        };
-
-        defer ast_tree.deinit();
-
-        const ast_tree_string = try ast_tree.toString(alloc);
-        defer alloc.free(ast_tree_string);
-
-        try tty_config.setColor(stdout.writer(), .yellow);
-        try stdout.writer().print("{s}\n", .{ast_tree_string});
-        try tty_config.setColor(stdout.writer(), .reset);
-    }
+pub fn eval_to_ast(self: Repl, filepath: []const u8) !void {
+    try self.stdout.print("TODO: start eval of filepath to ast: {s}", .{filepath});
 }
 
-pub fn start_eval(self: *Repl, alloc: std.mem.Allocator) !void {
-    const stdout = std.io.getStdOut();
-    const tty_config = std.io.tty.detectConfig(stdout);
+pub fn repl_eval(self: Repl) !void {
+    try self.stdout.print("TODO: start eval repl", .{});
+}
 
-    try tty_config.setColor(stdout.writer(), .green);
-    try stdout.writer().print("started REPL, eval", .{});
-    try tty_config.setColor(stdout.writer(), .reset);
-    try stdout.writer().print(": \n", .{});
-
-    const stdin = std.io.getStdIn().reader();
-    var env = Environment.init(alloc);
-    defer env.deinit();
-
-    while (true) {
-        const user_input = try stdin.readUntilDelimiterAlloc(alloc, '\n', 1024);
-        defer alloc.free(user_input);
-
-        const lexer = Lexer.init(user_input);
-        var parser = try Parser.init(alloc, lexer);
-        defer parser.deinit();
-
-        var ast_tree = parser.parseTree(env.arena.allocator()) catch |err| {
-            try tty_config.setColor(stdout.writer(), .red);
-            try stdout.writer().print("{any} when parsing: {s}\n", .{ err, user_input });
-
-            parser.checkParserErrors();
-            try tty_config.setColor(stdout.writer(), .reset);
-            continue;
-        };
-
-        if (ast_tree.root) |root| {
-            const root_node: ast.Node = ast_tree.nodes.items[root];
-            const evaluated = try self.evaluator.eval(&ast_tree, &env, root_node);
-            const eval_to_str = try evaluated.toString(alloc, &ast_tree);
-            defer alloc.free(eval_to_str);
-
-            try tty_config.setColor(stdout.writer(), .yellow);
-            try stdout.writer().print("{s}\n", .{eval_to_str});
-            try tty_config.setColor(stdout.writer(), .reset);
-        } else {
-            return error.EvalHasNoRootNode;
-        }
-    }
+pub fn repl_eval_to_ast(self: Repl) !void {
+    try self.stdout.print("TODO: start eval repl to ast", .{});
 }
