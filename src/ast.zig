@@ -57,6 +57,13 @@ pub const Statement = union(enum) {
             }
             try jw.endObject();
         }
+
+        pub fn clone(self: ReturnStatement, alloc: std.mem.Allocator) !ReturnStatement {
+            return ReturnStatement{
+                .token = self.token,
+                .expr = if (self.expr) |e| try e.clone(alloc) else null,
+            };
+        }
     };
 
     pub const DeclareAssignStatement = struct {
@@ -76,6 +83,14 @@ pub const Statement = union(enum) {
             }
             try jw.endObject();
         }
+
+        pub fn clone(self: DeclareAssignStatement, alloc: std.mem.Allocator) !DeclareAssignStatement {
+            return DeclareAssignStatement{
+                .token = self.token,
+                .ident = try self.ident.clone(alloc),
+                .expr = if (self.expr) |e| try e.clone(alloc) else null,
+            };
+        }
     };
 
     pub const ExpressionStatement = struct {
@@ -91,6 +106,13 @@ pub const Statement = union(enum) {
                 try jw.write(expr);
             }
             try jw.endObject();
+        }
+
+        pub fn clone(self: ExpressionStatement, alloc: std.mem.Allocator) !ExpressionStatement {
+            return ExpressionStatement{
+                .token = self.token,
+                .expr = if (self.expr) |e| try e.clone(alloc) else null,
+            };
         }
     };
 
@@ -110,6 +132,22 @@ pub const Statement = union(enum) {
             try jw.endArray();
             try jw.endObject();
         }
+
+        pub fn clone(self: BlockStatement, alloc: std.mem.Allocator) !BlockStatement {
+            var new_statements = ArrayList(Statement).init(alloc);
+            errdefer new_statements.deinit();
+
+            try new_statements.ensureTotalCapacity(self.statements.items.len);
+            for (self.statements.items) |stmt| {
+                const cloned_stmt = try stmt.clone(alloc);
+                try new_statements.append(cloned_stmt);
+            }
+
+            return BlockStatement{
+                .token = self.token,
+                .statements = new_statements,
+            };
+        }
     };
 
     pub fn jsonStringify(self: Statement, jw: anytype) !void {
@@ -127,6 +165,14 @@ pub const Statement = union(enum) {
                 try s.jsonStringify(jw);
             },
         }
+    }
+    pub fn clone(self: Statement, alloc: std.mem.Allocator) anyerror!Statement {
+        return switch (self) {
+            .return_ => |return_| Statement{ .return_ = try return_.clone(alloc) },
+            .declare_assign => |declare_assign| Statement{ .declare_assign = try declare_assign.clone(alloc) },
+            .expression => |expression| Statement{ .expression = try expression.clone(alloc) },
+            .block => |block| Statement{ .block = try block.clone(alloc) },
+        };
     }
 };
 
@@ -151,6 +197,12 @@ pub const Expression = union(enum) {
             try jw.write(self.value);
             try jw.endObject();
         }
+        pub fn clone(self: Ident, alloc: std.mem.Allocator) !Ident {
+            return Ident{
+                .token = self.token,
+                .value = try alloc.dupe(u8, self.value),
+            };
+        }
     };
 
     pub const Infix = struct {
@@ -171,6 +223,22 @@ pub const Expression = union(enum) {
             try jw.write(self.right);
             try jw.endObject();
         }
+        pub fn clone(self: Infix, alloc: std.mem.Allocator) !Infix {
+            const new_left = try alloc.create(Expression);
+            errdefer alloc.destroy(new_left);
+            new_left.* = try self.left.clone(alloc);
+
+            const new_right = try alloc.create(Expression);
+            errdefer alloc.destroy(new_right);
+            new_right.* = try self.right.clone(alloc);
+
+            return Infix{
+                .token = self.token,
+                .left = new_left,
+                .operator = try alloc.dupe(u8, self.operator),
+                .right = new_right,
+            };
+        }
     };
 
     pub const Prefix = struct {
@@ -187,6 +255,17 @@ pub const Expression = union(enum) {
             try jw.objectField("right");
             try jw.write(self.right);
             try jw.endObject();
+        }
+        pub fn clone(self: Prefix, alloc: std.mem.Allocator) !Prefix {
+            const new_right = try alloc.create(Expression);
+            errdefer alloc.destroy(new_right);
+            new_right.* = try self.right.clone(alloc);
+
+            return Prefix{
+                .token = self.token,
+                .operator = try alloc.dupe(u8, self.operator),
+                .right = new_right,
+            };
         }
     };
 
@@ -210,6 +289,18 @@ pub const Expression = union(enum) {
             }
             try jw.endObject();
         }
+        pub fn clone(self: If, alloc: std.mem.Allocator) !If {
+            const new_condition = try alloc.create(Expression);
+            errdefer alloc.destroy(new_condition);
+            new_condition.* = try self.condition.clone(alloc);
+
+            return If{
+                .token = self.token,
+                .condition = new_condition,
+                .consequence = try self.consequence.clone(alloc),
+                .alternative = if (self.alternative) |alt| try alt.clone(alloc) else null,
+            };
+        }
     };
 
     pub const Function = struct {
@@ -230,6 +321,23 @@ pub const Expression = union(enum) {
             try jw.objectField("body");
             try jw.write(self.body);
             try jw.endObject();
+        }
+
+        pub fn clone(self: Function, alloc: std.mem.Allocator) !Function {
+            var new_parameters = ArrayList(Ident).init(alloc);
+            errdefer new_parameters.deinit();
+
+            try new_parameters.ensureTotalCapacity(self.parameters.items.len);
+            for (self.parameters.items) |param| {
+                const cloned_param = try param.clone(alloc);
+                try new_parameters.append(cloned_param);
+            }
+
+            return Function{
+                .token = self.token,
+                .parameters = new_parameters,
+                .body = try self.body.clone(alloc),
+            };
         }
     };
 
@@ -252,6 +360,27 @@ pub const Expression = union(enum) {
             try jw.endArray();
             try jw.endObject();
         }
+
+        pub fn clone(self: Call, alloc: std.mem.Allocator) !Call {
+            const new_function = try alloc.create(Expression);
+            errdefer alloc.destroy(new_function);
+            new_function.* = try self.function.clone(alloc);
+
+            var new_arguments = ArrayList(Expression).init(alloc);
+            errdefer new_arguments.deinit();
+
+            try new_arguments.ensureTotalCapacity(self.arguments.items.len);
+            for (self.arguments.items) |arg| {
+                const cloned_arg = try arg.clone(alloc);
+                try new_arguments.append(cloned_arg);
+            }
+
+            return Call{
+                .token = self.token,
+                .function = new_function,
+                .arguments = new_arguments,
+            };
+        }
     };
 
     pub const Literal = struct {
@@ -265,6 +394,13 @@ pub const Expression = union(enum) {
             try jw.objectField("value");
             try self.value.jsonStringify(jw);
             try jw.endObject();
+        }
+
+        pub fn clone(self: Literal, alloc: std.mem.Allocator) !Literal {
+            return Literal{
+                .token = self.token,
+                .value = try self.value.clone(alloc),
+            };
         }
     };
 
@@ -294,6 +430,16 @@ pub const Expression = union(enum) {
                 },
             }
         }
+
+        pub fn clone(self: LiteralValue, alloc: std.mem.Allocator) !LiteralValue {
+            return switch (self) {
+                .int => |v| LiteralValue{ .int = v },
+                .boolean => |v| LiteralValue{ .boolean = v },
+                .null => LiteralValue{ .null = {} },
+                .float => |v| LiteralValue{ .float = v },
+                .string => |v| LiteralValue{ .string = try alloc.dupe(u8, v) },
+            };
+        }
     };
 
     pub fn jsonStringify(self: Expression, jw: anytype) !void {
@@ -320,6 +466,18 @@ pub const Expression = union(enum) {
                 try e.jsonStringify(jw);
             },
         }
+    }
+
+    pub fn clone(self: Expression, alloc: std.mem.Allocator) anyerror!Expression {
+        return switch (self) {
+            .ident => |ident| Expression{ .ident = try ident.clone(alloc) },
+            .infix => |infix| Expression{ .infix = try infix.clone(alloc) },
+            .prefix => |prefix| Expression{ .prefix = try prefix.clone(alloc) },
+            .literal => |literal| Expression{ .literal = try literal.clone(alloc) },
+            .if_ => |if_| Expression{ .if_ = try if_.clone(alloc) },
+            .function => |function| Expression{ .function = try function.clone(alloc) },
+            .call => |call| Expression{ .call = try call.clone(alloc) },
+        };
     }
 };
 

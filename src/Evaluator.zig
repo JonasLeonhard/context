@@ -25,8 +25,8 @@ pub fn deinit(self: Evaluator) void {
     self.arena.deinit();
 }
 
-pub fn reset(self: Evaluator) void {
-    self.arena.reset(.free_all);
+pub fn reset(self: *Evaluator) void {
+    _ = self.arena.reset(.free_all);
 }
 
 pub fn evalTree(self: *Evaluator, ast_tree: *Tree, env: *Environment) !Object {
@@ -125,7 +125,7 @@ pub fn evalExpression(self: *Evaluator, expression: Expression, env: *Environmen
         .if_ => |if_| try self.evalIfExpression(if_, env),
         .ident => |ident| try self.evalIdentExpression(ident, env),
         .call => |call| try self.evalCallExpression(call, env),
-        .function => |function| try evalFunctionExpression(function),
+        .function => |function| try evalFunctionExpression(function, env),
     };
 }
 
@@ -267,13 +267,10 @@ fn applyFunction(self: *Evaluator, function: Expression, args: ArrayList(Object)
     }
 }
 
-fn evalFunctionExpression(function: Expression.Function) !Object {
-    // TODO: clone here?
+fn evalFunctionExpression(function: Expression.Function, env: *Environment) !Object {
+    const cloned = try function.clone(env.arena.allocator());
     return Object{
-        .function = .{
-            .body = function.body,
-            .parameters = function.parameters, // TODO clone?
-        },
+        .function = .{ .body = cloned.body, .parameters = cloned.parameters },
     };
 }
 

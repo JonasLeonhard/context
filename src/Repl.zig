@@ -79,10 +79,12 @@ pub fn repl_eval(self: *Repl) !void {
         } else {
             try self.stdout.print("{s}{s}{s}\n", .{ colors.green, evaluated_str, colors.reset });
         }
+
+        self.evaluator.reset();
     }
 }
 
-pub fn repl_eval_to_ast(self: Repl) !void {
+pub fn repl_eval_to_ast(self: *Repl) !void {
     try self.stdout.print("{s}Welcome to Context:{s}\n", .{ colors.green, colors.reset });
     try self.stdout.print("   {s}--version {s}{s}\n", .{ colors.gray, version, colors.reset });
     try self.stdout.print("   {s}--tree json{s}\n\n", .{ colors.gray, colors.reset });
@@ -103,6 +105,8 @@ pub fn repl_eval_to_ast(self: Repl) !void {
         const ast_tree_str = try std.json.stringifyAlloc(self.alloc, ast_tree, .{ .whitespace = .indent_2 });
         defer self.alloc.free(ast_tree_str);
         try self.stdout.print("{s}{s}{s}\n", .{ colors.green, ast_tree_str, colors.reset });
+
+        self.evaluator.reset();
     }
 }
 
