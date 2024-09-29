@@ -43,15 +43,14 @@ pub fn main() !void {
             try repl.repl_eval();
         }
     } else {
-        const filepath = res.positionals[0];
-        // Run a file
-        const file_contents = try std.fs.cwd().readFileAlloc(alloc, filepath, 1024 * 1024); // 1MB limit
+        const file_path = res.positionals[0];
+        const file_contents = try std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024); // 1MB limit
         defer alloc.free(file_contents);
 
         if (res.args.tree != 0) {
-            try repl.eval_to_ast(file_contents);
+            try repl.eval_to_ast(file_path, file_contents);
         } else {
-            try repl.eval(file_contents);
+            try repl.eval(file_path, file_contents);
         }
     }
 }
