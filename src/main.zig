@@ -34,7 +34,8 @@ pub fn main() !void {
     if (res.args.help != 0)
         return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
 
-    const repl = Repl.init(alloc, stdin.any(), stdout.any());
+    var repl = Repl.init(alloc, stdin.any(), stdout.any());
+    defer repl.deinit();
 
     if (res.positionals.len == 0) {
         if (res.args.tree != 0) {
