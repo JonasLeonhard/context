@@ -67,6 +67,7 @@ pub fn init(alloc: std.mem.Allocator, lex: Lexer) !Parser {
     // registerPrefix
     try prefix_parse_fn_map.put(.Ident, parseIdentifier);
     try prefix_parse_fn_map.put(.{ .Literal = .Int }, parseIntegerLiteral);
+    try prefix_parse_fn_map.put(.{ .Literal = .Str }, parseStringLiteral);
     try prefix_parse_fn_map.put(.Bang, parsePrefixExpression);
     try prefix_parse_fn_map.put(.Minus, parsePrefixExpression);
     try prefix_parse_fn_map.put(.True, parseBooleanLiteral);
@@ -308,6 +309,17 @@ fn parseIntegerLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
             .value = .{
                 .int = value,
             },
+        },
+    };
+}
+
+fn parseStringLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
+    _ = ast_tree;
+
+    return .{
+        .literal = .{
+            .token = self.cur_token,
+            .value = .{ .string = self.cur_token.literal },
         },
     };
 }
@@ -715,6 +727,27 @@ test "Integer Literal Expression" {
             \\}
         },
     };
+
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
+}
+
+test "String Literal Expression" {
+    const tests = .{.{
+        "\"hello world\"",
+        \\{
+        \\  "nodes": [
+        \\    {
+        \\      "type": "expression_statement",
+        \\      "expression": {
+        \\        "type": "literal",
+        \\        "value": "hello world"
+        \\      }
+        \\    }
+        \\  ]
+        \\}
+    }};
 
     inline for (tests) |case| {
         try testTreeString(testing.allocator, case[0], case[1]);

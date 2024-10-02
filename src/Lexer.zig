@@ -351,6 +351,10 @@ pub fn nextToken(self: *Lexer) Token {
                 },
             }
         },
+        '"' => {
+            tok.type = .{ .Literal = .Str };
+            tok.literal = self.eatString();
+        },
         else => {
             if (isAlphabetic(self.char)) {
                 const ident = self.eatIdentifier();
@@ -402,6 +406,19 @@ fn eatNumber(self: *Lexer) []const u8 {
     return self.input[position..self.position];
 }
 
+fn eatString(self: *Lexer) []const u8 {
+    self.eatChar(); // remove the first '"'
+    const position = self.position;
+
+    while (true) {
+        if (self.char == '"' or self.char == 0)
+            break;
+        self.eatChar();
+    }
+
+    return self.input[position..self.position];
+}
+
 /// peeks from the current read_position
 fn peek(self: Lexer, look_ahead: usize) u8 {
     const index = self.read_position + look_ahead;
@@ -425,6 +442,8 @@ test "Next Token" {
         \\xyz
         // ------- Literals -------
         \\10
+        \\"foobar"
+        \\"foo bar"
         // ------- Keywords -------
         \\mut
         \\return
@@ -501,6 +520,8 @@ test "Next Token" {
     const tests = .{
         .{ TokenType.Ident, "xyz" },
         .{ TokenType{ .Literal = .Int }, "10" },
+        .{ TokenType{ .Literal = .Str }, "foobar" },
+        .{ TokenType{ .Literal = .Str }, "foo bar" },
         .{ TokenType.Mut, "mut" },
         .{ TokenType.Return, "return" },
         .{ TokenType.If, "if" },

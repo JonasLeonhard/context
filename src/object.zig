@@ -4,6 +4,7 @@ const Environment = @import("Environment.zig");
 
 pub const Object = union(enum) {
     integer: Integer,
+    string: String,
     boolean: Boolean,
     null: Null,
     return_: Return,
@@ -12,6 +13,10 @@ pub const Object = union(enum) {
 
     pub const Integer = struct {
         value: i64,
+    };
+
+    pub const String = struct {
+        value: []const u8,
     };
 
     pub const Boolean = struct {
@@ -57,6 +62,12 @@ pub const Object = union(enum) {
                 try jw.objectField("value");
                 try jw.write(i.value);
             },
+            .string => |str| {
+                try jw.objectField("type");
+                try jw.write("string");
+                try jw.objectField("value");
+                try jw.write(str.value);
+            },
             .boolean => |b| {
                 try jw.objectField("type");
                 try jw.write("boolean");
@@ -100,6 +111,9 @@ pub const Object = union(enum) {
         switch (self) {
             .integer => |int| {
                 return try std.fmt.allocPrint(allocator, "{d}", .{int.value});
+            },
+            .string => |string| {
+                return try std.fmt.allocPrint(allocator, "{s}", .{string.value});
             },
             .boolean => |boolean| {
                 return try std.fmt.allocPrint(allocator, "{any}", .{boolean.value});

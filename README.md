@@ -10,10 +10,10 @@ zig build run -- --tree
 
 ### Run a file:
 ```bash
-zig build run -- examples/simple.ctx
+zig build run -- examples/string.ctx
 ```
 
 ### Run a file and output the ast as json:
 ```bash
-zig build run -- examples/simple.ctx --tree
+zig build run -- examples/string.ctx --tree
 ```

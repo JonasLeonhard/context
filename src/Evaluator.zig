@@ -134,6 +134,9 @@ fn evalLiteralExpression(literal: Expression.Literal) !Object {
         .int => |int_val| {
             return Object{ .integer = .{ .value = int_val } };
         },
+        .string => |str_val| {
+            return Object{ .string = .{ .value = str_val } };
+        },
         .boolean => |bool_val| {
             return Object{ .boolean = .{ .value = bool_val } };
         },
@@ -371,6 +374,17 @@ fn testIntegerObject(expected: i64, actual: Object) !void {
     }
 }
 
+fn testStringObject(expected: []const u8, actual: Object) !void {
+    switch (actual) {
+        .string => |str_obj| {
+            try testing.expectEqualStrings(expected, str_obj.value);
+        },
+        else => {
+            return error.NotAStringObject;
+        },
+    }
+}
+
 fn testNullObject(actual: Object) !void {
     switch (actual) {
         .null => {
@@ -486,6 +500,27 @@ test "Eval Integer Expression" {
 
         const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
         try testIntegerObject(test_item[1], evaluated_ast);
+    }
+}
+
+test "Eval String Expression" {
+    const tests = .{
+        .{
+            "\"foo\"",
+            "foo",
+        },
+        .{
+            "\"hello world\"",
+            "hello world",
+        },
+    };
+
+    inline for (tests) |test_item| {
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
+        try testStringObject(test_item[1], evaluated_ast);
     }
 }
 
