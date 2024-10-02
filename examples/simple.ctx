@@ -1,0 +1,6 @@
+some := 1;
+other := 2;
+
+result := some + other;
+
+result;

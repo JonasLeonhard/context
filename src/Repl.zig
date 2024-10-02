@@ -1,3 +1,5 @@
+// TODO: this is missing a Garbage Collector.
+
 const std = @import("std");
 const Environment = @import("Environment.zig");
 const Evaluator = @import("Evaluator.zig");
@@ -36,21 +38,37 @@ pub fn deinit(self: *Repl) void {
     self.evaluator.deinit();
 }
 
-pub fn eval(self: Repl, file_path: []const u8, file_contents: []const u8) !void {
+pub fn eval(self: *Repl, file_path: []const u8, file_contents: []const u8) !void {
     try self.stdout.print("{s}Welcome to Context:{s}\n", .{ colors.green, colors.reset });
     try self.stdout.print("   {s}--version {s}{s}\n", .{ colors.gray, version, colors.reset });
     try self.stdout.print("   {s}--file {s}{s}\n", .{ colors.gray, file_path, colors.reset });
 
-    _ = file_contents; // TODO
+    var ast_tree = try self.parse_ast_tree(file_contents);
+    defer ast_tree.deinit();
+
+    const evaluated_obj = try self.evaluator.evalTree(&ast_tree, &self.env);
+    const evaluated_str = try evaluated_obj.toString(self.alloc);
+    defer self.alloc.free(evaluated_str);
+
+    if (evaluated_obj == .error_) {
+        try self.stdout.print("{s}>> {s}{s}\n", .{ colors.red, evaluated_str, colors.reset });
+    } else {
+        try self.stdout.print("{s}>> {s}{s}\n", .{ colors.green, evaluated_str, colors.reset });
+    }
 }
 
-pub fn eval_to_ast(self: Repl, file_path: []const u8, file_contents: []const u8) !void {
+pub fn eval_to_ast(self: *Repl, file_path: []const u8, file_contents: []const u8) !void {
     try self.stdout.print("{s}Welcome to Context:{s}\n", .{ colors.green, colors.reset });
     try self.stdout.print("   {s}--version {s}{s}\n", .{ colors.gray, version, colors.reset });
     try self.stdout.print("   {s}--file {s}{s}\n", .{ colors.gray, file_path, colors.reset });
     try self.stdout.print("   {s}--tree json{s}\n\n", .{ colors.gray, colors.reset });
 
-    _ = file_contents; // TODO
+    var ast_tree = try self.parse_ast_tree(file_contents);
+    defer ast_tree.deinit();
+
+    const ast_tree_str = try std.json.stringifyAlloc(self.alloc, ast_tree, .{ .whitespace = .indent_2 });
+    defer self.alloc.free(ast_tree_str);
+    try self.stdout.print("{s}>> {s}{s}\n", .{ colors.green, ast_tree_str, colors.reset });
 }
 
 pub fn repl_eval(self: *Repl) !void {
