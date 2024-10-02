@@ -97,8 +97,8 @@ fn evalReturnStatement(self: *Evaluator, statement: Statement.ReturnStatement, e
 
 fn evalDeclareAssignStatement(self: *Evaluator, statement: Statement.DeclareAssignStatement, env: *Environment) !Object {
     if (statement.expr) |expr| {
-        const expr_obj = try self.evalExpression(expr, env);
-        _ = try env.set(statement.ident.value, expr_obj);
+        var expr_obj = try self.evalExpression(expr, env);
+        _ = try env.set(statement.ident.value, &expr_obj);
         return expr_obj;
     }
 
@@ -251,7 +251,8 @@ fn applyFunction(self: *Evaluator, function: Expression, args: ArrayList(Object)
         .function => |func| {
             var enclosed_env = Environment.newEnclosedEnvironment(env);
             for (func.parameters.items, 0..) |param, arg_idx| {
-                _ = try enclosed_env.set(param.value, args.items[arg_idx]);
+                var arg = args.items[arg_idx];
+                _ = try enclosed_env.set(param.value, &arg);
             }
             const evaluated = try self.evalStatements(func.body.statements, &enclosed_env);
             switch (evaluated) {

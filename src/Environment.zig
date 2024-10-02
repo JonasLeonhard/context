@@ -33,10 +33,13 @@ pub fn get(self: Environment, name: []const u8) ?Object {
     return value;
 }
 
-pub fn set(self: *Environment, name: []const u8, val: Object) !Object {
-    const owned_name = try self.arena.allocator().dupe(u8, name);
-    try self.store.put(owned_name, val);
-    return val;
+pub fn set(self: *Environment, name: []const u8, val: *Object) !Object {
+    const arena_alloc = self.arena.allocator();
+    const owned_name = try arena_alloc.dupe(u8, name);
+
+    const cloned_val = try val.clone(arena_alloc);
+    try self.store.put(owned_name, cloned_val);
+    return cloned_val;
 }
 
 pub fn newEnclosedEnvironment(outer: *Environment) Environment {

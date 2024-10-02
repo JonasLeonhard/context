@@ -17,6 +17,11 @@ pub const Object = union(enum) {
 
     pub const String = struct {
         value: []const u8,
+
+        pub fn clone(self: String, alloc: std.mem.Allocator) !String {
+            const owned_value = try alloc.dupe(u8, self.value);
+            return String{ .value = owned_value };
+        }
     };
 
     pub const Boolean = struct {
@@ -25,15 +30,30 @@ pub const Object = union(enum) {
 
     pub const Return = struct {
         value: *Object,
+
+        pub fn clone(self: *Return, alloc: std.mem.Allocator) anyerror!Return {
+            const return_val = try alloc.create(Object);
+            return_val.* = try self.value.clone(alloc);
+            return Return{ .value = return_val };
+        }
     };
 
     pub const Function = struct {
         parameters: std.ArrayList(ast.Expression.Ident),
         body: ast.Statement.BlockStatement,
+
+        pub fn clone(self: Function, alloc: std.mem.Allocator) !Function {
+            return Function{ .parameters = try self.parameters.clone(), .body = try self.body.clone(alloc) };
+        }
     };
 
     pub const Error = struct {
         message: []const u8,
+
+        pub fn clone(self: Error, alloc: std.mem.Allocator) !Error {
+            const owned_value = try alloc.dupe(u8, self.message);
+            return Error{ .message = owned_value };
+        }
     };
 
     pub const Null = struct {};
@@ -141,5 +161,17 @@ pub const Object = union(enum) {
                 return try std.fmt.allocPrint(allocator, "Error: {s}", .{e.message});
             },
         }
+    }
+
+    pub fn clone(self: *Object, alloc: std.mem.Allocator) !Object {
+        return switch (self.*) {
+            .error_ => |error_| Object{ .error_ = try error_.clone(alloc) },
+            .null => self.*,
+            .string => |string| Object{ .string = try string.clone(alloc) },
+            .integer => self.*,
+            .boolean => self.*,
+            .return_ => |*return_| Object{ .return_ = try return_.clone(alloc) },
+            .function => |function| Object{ .function = try function.clone(alloc) },
+        };
     }
 };
