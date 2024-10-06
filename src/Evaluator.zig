@@ -227,7 +227,14 @@ fn evalIfExpression(self: *Evaluator, if_: Expression.If, env: *Environment) any
 }
 
 fn evalIdentExpression(self: *Evaluator, ident: Expression.Ident, env: *Environment) !Object {
-    if (env.get(ident.value)) |ident_obj| {
+    const ident_obj_from_env = env.get(ident.value);
+
+    if (ident_obj_from_env) |ident_obj| {
+        return ident_obj;
+    }
+
+    const ident_obj_from_builtin = Object.Builtin.get(ident.value);
+    if (ident_obj_from_builtin) |ident_obj| {
         return ident_obj;
     }
 
@@ -267,6 +274,9 @@ fn applyFunction(self: *Evaluator, function: Expression, args: ArrayList(Object)
                     return evaluated;
                 },
             }
+        },
+        .builtin => |builtin| {
+            return builtin.func(args.items, self.arena.allocator());
         },
         else => {
             std.debug.print("Not A function in applyFunction {s}\n", .{@tagName(function)});
@@ -930,5 +940,46 @@ test "String Concatenation" {
 
         const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
         try testStringObject(test_item[1], evaluated_ast);
+    }
+}
+
+test "Builtin Function" {
+    const tests = .{
+        .{
+            \\len("")
+            ,
+            0,
+        },
+        .{
+            \\len("four")
+            ,
+            4,
+        },
+        .{
+            \\len("hello world")
+            ,
+            11,
+        },
+        .{
+            \\len(1)
+            ,
+            @as([]const u8, "argument to 'len' not supported, got integer"),
+        },
+    };
+
+    inline for (tests) |test_item| {
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
+        switch (@TypeOf(test_item[1])) {
+            comptime_int => {
+                try testIntegerObject(test_item[1], evaluated_ast);
+            },
+            []const u8 => {
+                try testing.expectEqualStrings(test_item[1], evaluated_ast.error_.message);
+            },
+            else => @panic(std.fmt.comptimePrint("Builtin Function test type unsupported: {s}", .{@typeName(@TypeOf(test_item[1]))})),
+        }
     }
 }

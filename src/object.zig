@@ -9,6 +9,7 @@ pub const Object = union(enum) {
     null: Null,
     return_: Return,
     function: Function,
+    builtin: Builtin,
     error_: Error,
 
     pub const Integer = struct {
@@ -44,6 +45,42 @@ pub const Object = union(enum) {
 
         pub fn clone(self: Function, alloc: std.mem.Allocator) !Function {
             return Function{ .parameters = try self.parameters.clone(), .body = try self.body.clone(alloc) };
+        }
+    };
+
+    pub const Builtin = struct {
+        name: []const u8,
+        func: *const fn (args: []const Object, alloc: std.mem.Allocator) anyerror!Object,
+
+        pub fn get(name: []const u8) ?Object {
+            if (std.mem.eql(u8, name, "len")) {
+                return Object{
+                    .builtin = .{
+                        .name = name,
+                        .func = lenFunction,
+                    },
+                };
+            }
+
+            return null;
+        }
+
+        fn lenFunction(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
+            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d}, want=1", .{args.len}) } };
+
+            switch (args[0]) {
+                .string => |s| return Object{ .integer = .{ .value = @intCast(s.value.len) } },
+                else => {
+                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'len' not supported, got {s}", .{@tagName(args[0])}) } };
+                },
+            }
+        }
+
+        pub fn clone(self: Builtin, alloc: std.mem.Allocator) !Builtin {
+            return Builtin{
+                .name = try alloc.dupe(u8, self.name),
+                .func = self.func,
+            };
         }
     };
 
@@ -116,6 +153,12 @@ pub const Object = union(enum) {
                 try jw.objectField("body");
                 try jw.write(f.body); // Simplified representation
             },
+            .builtin => |b| {
+                try jw.objectField("type");
+                try jw.write("builtin");
+                try jw.objectField("name");
+                try jw.write(b.name);
+            },
             .error_ => |e| {
                 try jw.objectField("type");
                 try jw.write("error");
@@ -157,6 +200,9 @@ pub const Object = union(enum) {
 
                 return try std.fmt.allocPrint(allocator, "Function(params: [{s}], body: <...>)", .{params.items});
             },
+            .builtin => |b| {
+                return try std.fmt.allocPrint(allocator, "Builtin function: {s}", .{b.name});
+            },
             .error_ => |e| {
                 return try std.fmt.allocPrint(allocator, "Error: {s}", .{e.message});
             },
@@ -171,6 +217,7 @@ pub const Object = union(enum) {
             .integer => self.*,
             .boolean => self.*,
             .return_ => |*return_| Object{ .return_ = try return_.clone(alloc) },
+            .builtin => |b| Object{ .builtin = try b.clone(alloc) },
             .function => |function| Object{ .function = try function.clone(alloc) },
         };
     }
