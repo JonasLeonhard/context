@@ -184,6 +184,10 @@ fn evalInfixExpression(self: *Evaluator, infix: Expression.Infix, env: *Environm
         return self.evalIntegerInfixExpression(infix.operator, left.integer, right.integer);
     }
 
+    if (left == .string and right == .string) {
+        return self.evalStringInfixExpression(infix.operator, left.string, right.string);
+    }
+
     if (std.mem.eql(u8, infix.operator, "==")) {
         return Object{ .boolean = .{ .value = std.meta.eql(left, right) } };
     }
@@ -309,6 +313,16 @@ fn evalIntegerInfixExpression(self: *Evaluator, operator: []const u8, left: Obje
 
     if (std.mem.eql(u8, "!=", operator)) {
         return Object{ .boolean = .{ .value = left.value != right.value } };
+    }
+
+    return Object{
+        .error_ = .{ .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: integer {s} integer", .{operator}) },
+    };
+}
+
+fn evalStringInfixExpression(self: *Evaluator, operator: []const u8, left: Object.String, right: Object.String) !Object {
+    if (std.mem.eql(u8, "+", operator)) {
+        return Object{ .string = .{ .value = try std.mem.concat(self.arena.allocator(), u8, &[_][]const u8{ left.value, right.value }) } };
     }
 
     return Object{
@@ -898,5 +912,23 @@ test "Function Application" {
 
         const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
         try testIntegerObject(test_item[1], evaluated_ast);
+    }
+}
+
+test "String Concatenation" {
+    const tests = .{
+        .{
+            \\"Hello" + " " + "World";
+            ,
+            "Hello World",
+        },
+    };
+
+    inline for (tests) |test_item| {
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
+        try testStringObject(test_item[1], evaluated_ast);
     }
 }
