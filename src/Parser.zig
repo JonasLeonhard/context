@@ -76,6 +76,7 @@ pub fn init(alloc: std.mem.Allocator, lex: Lexer) !Parser {
     try prefix_parse_fn_map.put(.OpenParen, parseGroupedExpression);
     try prefix_parse_fn_map.put(.If, parseIfExpression);
     try prefix_parse_fn_map.put(.Fn, parseFunctionLiteral);
+    try prefix_parse_fn_map.put(.OpenBracket, parseArrayLiteral);
 
     // registerInfix
     try infix_parse_fn_map.put(.Plus, parseInfixExpression);
@@ -376,9 +377,39 @@ fn parseFunctionLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
     };
 }
 
+fn parseArrayLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
+    const elements = try self.parseExpressionList(ast_tree, .CloseBracket);
+    return .{ .literal = .{ .token = self.cur_token, .value = .{ .array = elements } } };
+}
+
+fn parseExpressionList(self: *Parser, ast_tree: *ast.Tree, end_token_type: TokenType) !ArrayList(ast.Expression) {
+    var list = ArrayList(ast.Expression).init(ast_tree.arena.allocator());
+
+    if (self.peekTokenIs(end_token_type)) {
+        self.nextToken();
+        return list;
+    }
+
+    self.nextToken();
+    try list.append(try self.parseExpression(ast_tree, .Lowest));
+
+    while (self.peekTokenIs(.Comma)) {
+        self.nextToken();
+        self.nextToken();
+        try list.append(try self.parseExpression(ast_tree, .Lowest));
+    }
+
+    if (!self.expectPeekAndEat(end_token_type)) {
+        list.deinit();
+        try self.errors.append("Could not find any end_token_type for expression list. Have you forgotten to close your list?");
+        return error.ParseExpressionListNotClosed;
+    }
+    return list;
+}
+
 // TODO: add typed parameters!
 fn parseFunctionParameters(self: *Parser, ast_tree: *ast.Tree) !ArrayList(ast.Expression.Ident) {
-    var parameters = std.ArrayList(ast.Expression.Ident).init(ast_tree.arena.allocator());
+    var parameters = ArrayList(ast.Expression.Ident).init(ast_tree.arena.allocator());
 
     if (self.peekTokenIs(.CloseParen)) {
         self.nextToken();
@@ -2213,6 +2244,58 @@ test "Call Expression" {
             \\            "right": {
             \\              "type": "literal",
             \\              "value": 5
+            \\            }
+            \\          }
+            \\        ]
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+    };
+
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
+}
+
+test "Parse Array Literal" {
+    const tests = .{
+        .{
+            "[1, 2 * 2, 3 + 3]",
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": [
+            \\          {
+            \\            "type": "literal",
+            \\            "value": 1
+            \\          },
+            \\          {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 2
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 2
+            \\            }
+            \\          },
+            \\          {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 3
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 3
             \\            }
             \\          }
             \\        ]

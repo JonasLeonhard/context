@@ -410,6 +410,7 @@ pub const Expression = union(enum) {
         null: void,
         float: f64,
         string: []const u8,
+        array: ArrayList(Expression),
 
         pub fn jsonStringify(self: LiteralValue, jw: anytype) !void {
             switch (self) {
@@ -428,6 +429,13 @@ pub const Expression = union(enum) {
                 .string => |v| {
                     try jw.write(v);
                 },
+                .array => |array| {
+                    try jw.beginArray();
+                    for (array.items) |item| {
+                        try jw.write(item);
+                    }
+                    try jw.endArray();
+                },
             }
         }
 
@@ -438,6 +446,16 @@ pub const Expression = union(enum) {
                 .null => LiteralValue{ .null = {} },
                 .float => |v| LiteralValue{ .float = v },
                 .string => |v| LiteralValue{ .string = try alloc.dupe(u8, v) },
+                .array => |v| {
+                    var new_array = try std.ArrayList(Expression).initCapacity(alloc, v.items.len);
+                    errdefer new_array.deinit();
+
+                    for (v.items) |item| {
+                        try new_array.append(try item.clone(alloc));
+                    }
+
+                    return LiteralValue{ .array = new_array };
+                },
             };
         }
     };
