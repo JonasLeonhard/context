@@ -52,9 +52,17 @@ pub const Object = union(enum) {
     pub const Array = struct {
         elements: std.ArrayList(Object),
 
-        pub fn clone(self: Array) !Array {
+        pub fn clone(self: Array, alloc: std.mem.Allocator) anyerror!Array {
+            var cloned_elements = try std.ArrayList(Object).initCapacity(alloc, self.elements.items.len);
+            errdefer cloned_elements.deinit();
+
+            for (self.elements.items) |*element| {
+                const cloned_element = try element.clone(alloc);
+                try cloned_elements.append(cloned_element);
+            }
+
             return Array{
-                .elements = try self.elements.clone(),
+                .elements = cloned_elements,
             };
         }
     };
@@ -250,7 +258,7 @@ pub const Object = union(enum) {
             .integer => self.*,
             .boolean => self.*,
             .return_ => |*return_| Object{ .return_ = try return_.clone(alloc) },
-            .array => |*array| Object{ .array = try array.clone() },
+            .array => |*array| Object{ .array = try array.clone(alloc) },
             .builtin => |b| Object{ .builtin = try b.clone(alloc) },
             .function => |function| Object{ .function = try function.clone(alloc) },
         };
