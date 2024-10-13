@@ -47,7 +47,7 @@ pub const Statement = union(enum) {
         token: Token,
         expr: ?Expression,
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: ReturnStatement, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("return");
@@ -71,7 +71,7 @@ pub const Statement = union(enum) {
         ident: Expression.Ident,
         expr: ?Expression,
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: DeclareAssignStatement, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("declare_assign");
@@ -97,7 +97,7 @@ pub const Statement = union(enum) {
         token: Token,
         expr: ?Expression,
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: ExpressionStatement, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("expression_statement");
@@ -120,7 +120,7 @@ pub const Statement = union(enum) {
         token: Token,
         statements: ArrayList(Statement),
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: BlockStatement, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("block");
@@ -184,12 +184,13 @@ pub const Expression = union(enum) {
     if_: If,
     function: Function,
     call: Call,
+    index: Index,
 
     pub const Ident = struct {
         token: Token,
         value: []const u8,
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: Ident, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("ident");
@@ -211,16 +212,16 @@ pub const Expression = union(enum) {
         operator: []const u8,
         right: *Expression,
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: Infix, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("infix");
             try jw.objectField("operator");
             try jw.write(self.operator);
             try jw.objectField("left");
-            try jw.write(self.left);
+            try jw.write(self.left.*);
             try jw.objectField("right");
-            try jw.write(self.right);
+            try jw.write(self.right.*);
             try jw.endObject();
         }
         pub fn clone(self: Infix, alloc: std.mem.Allocator) !Infix {
@@ -246,14 +247,14 @@ pub const Expression = union(enum) {
         operator: []const u8,
         right: *Expression,
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: Prefix, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("prefix");
             try jw.objectField("operator");
             try jw.write(self.operator);
             try jw.objectField("right");
-            try jw.write(self.right);
+            try jw.write(self.right.*);
             try jw.endObject();
         }
         pub fn clone(self: Prefix, alloc: std.mem.Allocator) !Prefix {
@@ -275,12 +276,12 @@ pub const Expression = union(enum) {
         consequence: Statement.BlockStatement,
         alternative: ?Statement.BlockStatement,
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: If, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("if");
             try jw.objectField("condition");
-            try jw.write(self.condition);
+            try jw.write(self.condition.*);
             try jw.objectField("consequence");
             try jw.write(self.consequence);
             if (self.alternative) |alt| {
@@ -308,7 +309,7 @@ pub const Expression = union(enum) {
         parameters: ArrayList(Ident),
         body: Statement.BlockStatement,
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: Function, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("function");
@@ -346,12 +347,12 @@ pub const Expression = union(enum) {
         function: *Expression,
         arguments: ArrayList(Expression),
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: Call, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("call");
             try jw.objectField("function");
-            try jw.write(self.function);
+            try jw.write(self.function.*);
             try jw.objectField("arguments");
             try jw.beginArray();
             for (self.arguments.items) |arg| {
@@ -383,11 +384,44 @@ pub const Expression = union(enum) {
         }
     };
 
+    pub const Index = struct {
+        token: Token,
+        left: *Expression,
+        index: *Expression,
+
+        pub fn jsonStringify(self: Index, jw: anytype) !void {
+            try jw.beginObject();
+            try jw.objectField("type");
+            try jw.write("index");
+            try jw.objectField("left");
+            try jw.write(self.left.*);
+            try jw.objectField("index");
+            try jw.write(self.index.*);
+            try jw.endObject();
+        }
+
+        pub fn clone(self: Index, alloc: std.mem.Allocator) !Index {
+            const new_left = try alloc.create(Expression);
+            errdefer alloc.destroy(new_left);
+            new_left.* = try self.left.clone(alloc);
+
+            const new_index = try alloc.create(Expression);
+            errdefer alloc.destroy(new_index);
+            new_index.* = try self.index.clone(alloc);
+
+            return Index{
+                .token = self.token,
+                .left = new_left,
+                .index = new_index,
+            };
+        }
+    };
+
     pub const Literal = struct {
         token: Token,
         value: LiteralValue,
 
-        pub fn jsonStringify(self: @This(), jw: anytype) !void {
+        pub fn jsonStringify(self: Literal, jw: anytype) !void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("literal");
@@ -471,6 +505,9 @@ pub const Expression = union(enum) {
             .prefix => |e| {
                 try e.jsonStringify(jw);
             },
+            .index => |e| {
+                try e.jsonStringify(jw);
+            },
             .literal => |e| {
                 try e.jsonStringify(jw);
             },
@@ -494,6 +531,7 @@ pub const Expression = union(enum) {
             .literal => |literal| Expression{ .literal = try literal.clone(alloc) },
             .if_ => |if_| Expression{ .if_ = try if_.clone(alloc) },
             .function => |function| Expression{ .function = try function.clone(alloc) },
+            .index => |index| Expression{ .index = try index.clone(alloc) },
             .call => |call| Expression{ .call = try call.clone(alloc) },
         };
     }

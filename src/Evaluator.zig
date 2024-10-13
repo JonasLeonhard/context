@@ -126,6 +126,7 @@ pub fn evalExpression(self: *Evaluator, expression: Expression, env: *Environmen
         .ident => |ident| try self.evalIdentExpression(ident, env),
         .call => |call| try self.evalCallExpression(call, env),
         .function => |function| try evalFunctionExpression(function, env),
+        .index => |index| try evalIndexExpression(index, env),
     };
 }
 
@@ -290,6 +291,12 @@ fn evalFunctionExpression(function: Expression.Function, env: *Environment) !Obj
     return Object{
         .function = .{ .body = cloned.body, .parameters = cloned.parameters },
     };
+}
+
+fn evalIndexExpression(index: Expression.Index, env: *Environment) !Object {
+    _ = index;
+    _ = env;
+    @panic("TODO");
 }
 
 fn evalIntegerInfixExpression(self: *Evaluator, operator: []const u8, left: Object.Integer, right: Object.Integer) !Object {

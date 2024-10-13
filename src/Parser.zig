@@ -26,6 +26,7 @@ const Precedence = enum {
     Product, // *
     Prefix, // -X or !X
     Call, // myFunction(X)
+    Index, // somearray[1 + 1]
 
     pub fn fromTokenType(tok: TokenType) @This() {
         return switch (tok) {
@@ -38,6 +39,7 @@ const Precedence = enum {
             .Slash => .Product,
             .Star => .Product,
             .OpenParen => .Call,
+            .OpenBracket => .Index,
             else => .Lowest,
         };
     }
@@ -88,6 +90,7 @@ pub fn init(alloc: std.mem.Allocator, lex: Lexer) !Parser {
     try infix_parse_fn_map.put(.Lt, parseInfixExpression);
     try infix_parse_fn_map.put(.Gt, parseInfixExpression);
     try infix_parse_fn_map.put(.OpenParen, parseCallExpression);
+    try infix_parse_fn_map.put(.OpenBracket, parseIndexExpression);
 
     var parser = Parser{
         .lexer = lex,
@@ -584,6 +587,32 @@ fn parseCallExpression(self: *Parser, ast_tree: *ast.Tree, function: ast.Express
             .token = self.cur_token,
             .function = func,
             .arguments = try self.parseCallArguments(ast_tree),
+        },
+    };
+}
+
+fn parseIndexExpression(self: *Parser, ast_tree: *ast.Tree, left: ast.Expression) !ast.Expression {
+    const start_token = self.cur_token;
+
+    self.nextToken();
+
+    const h_left = try ast_tree.arena.allocator().create(ast.Expression);
+    h_left.* = left;
+
+    const index = try ast_tree.arena.allocator().create(ast.Expression);
+    index.* = try self.parseExpression(ast_tree, .Lowest);
+
+    if (!self.expectPeekAndEat(.CloseBracket)) {
+        const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any CloseBracket after index expression, found: {any}", .{self.cur_token});
+        try self.errors.append(err_msg);
+        return error.IndexExpressionNotClosed;
+    }
+
+    return .{
+        .index = .{
+            .token = start_token,
+            .left = h_left,
+            .index = index,
         },
     };
 }
@@ -1913,6 +1942,145 @@ test "Operator Precedence" {
             \\  ]
             \\}
         },
+        .{
+            "a * [1, 2, 3, 4][b * c] * d", // ((a * ([1, 2, 3, 4][(b * c)])) * d)
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "infix",
+            \\        "operator": "*",
+            \\        "left": {
+            \\          "type": "infix",
+            \\          "operator": "*",
+            \\          "left": {
+            \\            "type": "ident",
+            \\            "value": "a"
+            \\          },
+            \\          "right": {
+            \\            "type": "index",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": [
+            \\                {
+            \\                  "type": "literal",
+            \\                  "value": 1
+            \\                },
+            \\                {
+            \\                  "type": "literal",
+            \\                  "value": 2
+            \\                },
+            \\                {
+            \\                  "type": "literal",
+            \\                  "value": 3
+            \\                },
+            \\                {
+            \\                  "type": "literal",
+            \\                  "value": 4
+            \\                }
+            \\              ]
+            \\            },
+            \\            "index": {
+            \\              "type": "infix",
+            \\              "operator": "*",
+            \\              "left": {
+            \\                "type": "ident",
+            \\                "value": "b"
+            \\              },
+            \\              "right": {
+            \\                "type": "ident",
+            \\                "value": "c"
+            \\              }
+            \\            }
+            \\          }
+            \\        },
+            \\        "right": {
+            \\          "type": "ident",
+            \\          "value": "d"
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            "add(a * b[2], b[1], 2 * [1, 2][1])", // add((a * (b[2])), (b[1]), (2 * ([1, 2][1])))
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "call",
+            \\        "function": {
+            \\          "type": "ident",
+            \\          "value": "add"
+            \\        },
+            \\        "arguments": [
+            \\          {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "a"
+            \\            },
+            \\            "right": {
+            \\              "type": "index",
+            \\              "left": {
+            \\                "type": "ident",
+            \\                "value": "b"
+            \\              },
+            \\              "index": {
+            \\                "type": "literal",
+            \\                "value": 2
+            \\              }
+            \\            }
+            \\          },
+            \\          {
+            \\            "type": "index",
+            \\            "left": {
+            \\              "type": "ident",
+            \\              "value": "b"
+            \\            },
+            \\            "index": {
+            \\              "type": "literal",
+            \\              "value": 1
+            \\            }
+            \\          },
+            \\          {
+            \\            "type": "infix",
+            \\            "operator": "*",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 2
+            \\            },
+            \\            "right": {
+            \\              "type": "index",
+            \\              "left": {
+            \\                "type": "literal",
+            \\                "value": [
+            \\                  {
+            \\                    "type": "literal",
+            \\                    "value": 1
+            \\                  },
+            \\                  {
+            \\                    "type": "literal",
+            \\                    "value": 2
+            \\                  }
+            \\                ]
+            \\              },
+            \\              "index": {
+            \\                "type": "literal",
+            \\                "value": 1
+            \\              }
+            \\            }
+            \\          }
+            \\        ]
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
     };
 
     inline for (tests) |case| {
@@ -2299,6 +2467,44 @@ test "Parse Array Literal" {
             \\            }
             \\          }
             \\        ]
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+    };
+
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
+}
+
+test "Index Expression" {
+    const tests = .{
+        .{
+            "someArray[1 + 1];",
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "index",
+            \\        "left": {
+            \\          "type": "ident",
+            \\          "value": "someArray"
+            \\        },
+            \\        "index": {
+            \\          "type": "infix",
+            \\          "operator": "+",
+            \\          "left": {
+            \\            "type": "literal",
+            \\            "value": 1
+            \\          },
+            \\          "right": {
+            \\            "type": "literal",
+            \\            "value": 1
+            \\          }
+            \\        }
             \\      }
             \\    }
             \\  ]
