@@ -9,6 +9,7 @@ pub const Object = union(enum) {
     null: Null,
     return_: Return,
     function: Function,
+    array: Array,
     builtin: Builtin,
     error_: Error,
 
@@ -45,6 +46,16 @@ pub const Object = union(enum) {
 
         pub fn clone(self: Function, alloc: std.mem.Allocator) !Function {
             return Function{ .parameters = try self.parameters.clone(), .body = try self.body.clone(alloc) };
+        }
+    };
+
+    pub const Array = struct {
+        elements: std.ArrayList(Object),
+
+        pub fn clone(self: Array) !Array {
+            return Array{
+                .elements = try self.elements.clone(),
+            };
         }
     };
 
@@ -153,6 +164,16 @@ pub const Object = union(enum) {
                 try jw.objectField("body");
                 try jw.write(f.body); // Simplified representation
             },
+            .array => |a| {
+                try jw.objectField("type");
+                try jw.write("array");
+                try jw.objectField("elements");
+                try jw.beginArray();
+                for (a.elements.items) |element| {
+                    try jw.write(element);
+                }
+                try jw.endArray();
+            },
             .builtin => |b| {
                 try jw.objectField("type");
                 try jw.write("builtin");
@@ -200,6 +221,18 @@ pub const Object = union(enum) {
 
                 return try std.fmt.allocPrint(allocator, "Function(params: [{s}], body: <...>)", .{params.items});
             },
+            .array => |a| {
+                var elements = std.ArrayList(u8).init(allocator);
+                defer elements.deinit();
+                for (a.elements.items, 0..) |element, i| {
+                    if (i > 0) {
+                        try elements.appendSlice(", ");
+                        try elements.appendSlice(try element.toString(allocator));
+                    }
+                }
+
+                return try std.fmt.allocPrint(allocator, "Array[{s}]", .{elements.items});
+            },
             .builtin => |b| {
                 return try std.fmt.allocPrint(allocator, "Builtin function: {s}", .{b.name});
             },
@@ -217,6 +250,7 @@ pub const Object = union(enum) {
             .integer => self.*,
             .boolean => self.*,
             .return_ => |*return_| Object{ .return_ = try return_.clone(alloc) },
+            .array => |*array| Object{ .array = try array.clone() },
             .builtin => |b| Object{ .builtin = try b.clone(alloc) },
             .function => |function| Object{ .function = try function.clone(alloc) },
         };

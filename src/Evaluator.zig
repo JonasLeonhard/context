@@ -119,7 +119,7 @@ pub fn evalExpressions(self: *Evaluator, expressions: []Expression, env: *Enviro
 
 pub fn evalExpression(self: *Evaluator, expression: Expression, env: *Environment) !Object {
     return switch (expression) {
-        .literal => |literal| evalLiteralExpression(literal),
+        .literal => |literal| try self.evalLiteralExpression(literal, env),
         .prefix => |prefix| try self.evalPrefixExpression(prefix, env),
         .infix => |infix| try self.evalInfixExpression(infix, env),
         .if_ => |if_| try self.evalIfExpression(if_, env),
@@ -130,7 +130,7 @@ pub fn evalExpression(self: *Evaluator, expression: Expression, env: *Environmen
     };
 }
 
-fn evalLiteralExpression(literal: Expression.Literal) !Object {
+fn evalLiteralExpression(self: *Evaluator, literal: Expression.Literal, env: *Environment) !Object {
     return switch (literal.value) {
         .int => |int_val| {
             return Object{ .integer = .{ .value = int_val } };
@@ -143,6 +143,14 @@ fn evalLiteralExpression(literal: Expression.Literal) !Object {
         },
         .null => {
             return Object{ .null = .{} };
+        },
+        .array => |array_val| {
+            const elements = try self.evalExpressions(array_val.items, env);
+            if (elements.items.len == 1 and elements.items[0] == .error_) {
+                return elements.items[0];
+            }
+
+            return Object{ .array = .{ .elements = elements } };
         },
         else => {
             std.debug.print("EvalLiteralValueNotImplementedYet for {any}\n", .{literal});
@@ -987,6 +995,29 @@ test "Builtin Function" {
                 try testing.expectEqualStrings(test_item[1], evaluated_ast.error_.message);
             },
             else => @panic(std.fmt.comptimePrint("Builtin Function test type unsupported: {s}", .{@typeName(@TypeOf(test_item[1]))})),
+        }
+    }
+}
+
+test "Array Literals" {
+    const tests = .{
+        .{
+            "[1, 2 * 2, 3 + 3]", .{
+                1,
+                4,
+                6,
+            },
+        },
+    };
+
+    inline for (tests) |test_item| {
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
+
+        inline for (test_item[1], 0..) |item, index| {
+            try testIntegerObject(item, evaluated_ast.array.elements.items[index]);
         }
     }
 }
