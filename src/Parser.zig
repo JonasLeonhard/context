@@ -717,6 +717,24 @@ test "DeclareAssign Statement" {
             \\  ]
             \\}
         },
+        .{
+            "foo_bar := y;",
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "declare_assign",
+            \\      "identifier": {
+            \\        "type": "ident",
+            \\        "value": "foo_bar"
+            \\      },
+            \\      "expression": {
+            \\        "type": "ident",
+            \\        "value": "y"
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
     };
 
     inline for (tests) |case| {

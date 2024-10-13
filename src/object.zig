@@ -211,7 +211,7 @@ pub const Object = union(enum) {
                 return try std.fmt.allocPrint(allocator, "{any}", .{boolean.value});
             },
             .null => {
-                return "null";
+                return try allocator.dupe(u8, "null");
             },
             .return_ => |return_| {
                 return return_.value.toString(allocator);
@@ -235,8 +235,10 @@ pub const Object = union(enum) {
                 for (a.elements.items, 0..) |element, i| {
                     if (i > 0) {
                         try elements.appendSlice(", ");
-                        try elements.appendSlice(try element.toString(allocator));
                     }
+                    const element_str = try element.toString(allocator);
+                    defer allocator.free(element_str);
+                    try elements.appendSlice(element_str);
                 }
 
                 return try std.fmt.allocPrint(allocator, "Array[{s}]", .{elements.items});

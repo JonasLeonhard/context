@@ -126,7 +126,7 @@ pub fn evalExpression(self: *Evaluator, expression: Expression, env: *Environmen
         .ident => |ident| try self.evalIdentExpression(ident, env),
         .call => |call| try self.evalCallExpression(call, env),
         .function => |function| try evalFunctionExpression(function, env),
-        .index => |index| try evalIndexExpression(index, env),
+        .index => |index| try self.evalIndexExpression(index, env),
     };
 }
 
@@ -301,10 +301,36 @@ fn evalFunctionExpression(function: Expression.Function, env: *Environment) !Obj
     };
 }
 
-fn evalIndexExpression(index: Expression.Index, env: *Environment) !Object {
-    _ = index;
-    _ = env;
-    @panic("TODO");
+fn evalIndexExpression(self: *Evaluator, expr: Expression.Index, env: *Environment) anyerror!Object {
+    const left = try self.evalExpression(expr.left.*, env);
+    if (left == .error_) {
+        return left;
+    }
+
+    const index = try self.evalExpression(expr.index.*, env);
+
+    if (index == .error_) {
+        return index;
+    }
+
+    if (left == .array and index == .integer) {
+        return evalArrayIndexExpression(left.array, index.integer);
+    }
+
+    return Object{
+        .error_ = .{ .message = try std.fmt.allocPrint(self.arena.allocator(), "index operator not supported: {s}", .{@typeName(@TypeOf(left))}) },
+    };
+}
+
+fn evalArrayIndexExpression(array: Object.Array, index: Object.Integer) Object {
+    const idx = index.value;
+    const max = array.elements.items.len - 1;
+
+    if (idx < 0 or idx > max) {
+        return Object{ .null = .{} };
+    }
+
+    return array.elements.items[@intCast(idx)];
 }
 
 fn evalIntegerInfixExpression(self: *Evaluator, operator: []const u8, left: Object.Integer, right: Object.Integer) !Object {
@@ -1018,6 +1044,68 @@ test "Array Literals" {
 
         inline for (test_item[1], 0..) |item, index| {
             try testIntegerObject(item, evaluated_ast.array.elements.items[index]);
+        }
+    }
+}
+
+test "Array Indexing" {
+    const tests = .{
+        .{
+            "[1, 2, 3][0]",
+            1,
+        },
+        .{
+            "[1, 2, 3][1]",
+            2,
+        },
+        .{
+            "[1, 2, 3][2]",
+            3,
+        },
+        .{
+            "i := 0; [1][i];",
+            1,
+        },
+        .{
+            "[1, 2, 3][1 + 1];",
+            3,
+        },
+        .{
+            "my_array := [1, 2, 3]; my_array[2];",
+            3,
+        },
+        .{
+            "my_array := [1, 2, 3]; my_array[0] + my_array[1] + my_array[2];",
+            6,
+        },
+        .{
+            "my_array := [1, 2, 3]; i := my_array[0]; my_array[i];",
+            2,
+        },
+        .{
+            "[1, 2, 3][3]",
+            null,
+        },
+        .{
+            "[1, 2, 3][-1]",
+            null,
+        },
+    };
+
+    inline for (tests) |test_item| {
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
+
+        switch (@TypeOf(test_item[1])) {
+            comptime_int => {
+                try testIntegerObject(test_item[1], evaluated_ast);
+            },
+            @TypeOf(null) => {
+                try testNullObject(evaluated_ast);
+            },
+            else => @panic(std.fmt.comptimePrint("Builtin Function test type unsupported: {s}", .{@typeName(@TypeOf(test_item[1]))})),
         }
     }
 }

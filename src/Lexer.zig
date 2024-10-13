@@ -356,7 +356,7 @@ pub fn nextToken(self: *Lexer) Token {
             tok.literal = self.eatString();
         },
         else => {
-            if (isAlphabetic(self.char)) {
+            if (isAlphabetic(self.char) or self.char == '_') {
                 const ident = self.eatIdentifier();
                 tok.literal = ident;
                 tok.type = Token.lookupIdent(ident);
@@ -389,7 +389,7 @@ fn eatChar(self: *Lexer) void {
 fn eatIdentifier(self: *Lexer) []const u8 {
     const position = self.position;
 
-    while (isAlphabetic(self.char)) {
+    while (isAlphabetic(self.char) or self.char == '_') {
         self.eatChar();
     }
 
