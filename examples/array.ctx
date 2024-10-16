@@ -1,2 +1,6 @@
 some := [1, 2, 3];
-some[1];
+
+indexed := some[1];
+length := len(some);
+first := first(some);
+last := last(some);

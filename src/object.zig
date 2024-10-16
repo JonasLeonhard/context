@@ -81,6 +81,20 @@ pub const Object = union(enum) {
                 };
             }
 
+            if (std.mem.eql(u8, name, "first")) {
+                return Object{ .builtin = .{
+                    .name = name,
+                    .func = first,
+                } };
+            }
+
+            if (std.mem.eql(u8, name, "last")) {
+                return Object{ .builtin = .{
+                    .name = name,
+                    .func = last,
+                } };
+            }
+
             return null;
         }
 
@@ -89,8 +103,43 @@ pub const Object = union(enum) {
 
             switch (args[0]) {
                 .string => |s| return Object{ .integer = .{ .value = @intCast(s.value.len) } },
+                .array => |a| return Object{ .integer = .{ .value = @intCast(a.elements.items.len) } },
                 else => {
                     return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'len' not supported, got {s}", .{@tagName(args[0])}) } };
+                },
+            }
+        }
+
+        fn first(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
+            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d}, want=1", .{args.len}) } };
+
+            switch (args[0]) {
+                .array => |a| {
+                    if (a.elements.items.len > 0) {
+                        return a.elements.items[0];
+                    }
+
+                    return Object{ .null = .{} };
+                },
+                else => {
+                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'first' not supported, got {s}", .{@tagName(args[0])}) } };
+                },
+            }
+        }
+
+        fn last(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
+            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d}, want=1", .{args.len}) } };
+
+            switch (args[0]) {
+                .array => |a| {
+                    if (a.elements.items.len > 0) {
+                        return a.elements.getLast();
+                    }
+
+                    return Object{ .null = .{} };
+                },
+                else => {
+                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'last' not supported, got {s}", .{@tagName(args[0])}) } };
                 },
             }
         }
