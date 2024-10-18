@@ -1,1 +1,7 @@
+print("string example");
+
 string := "hello world";
+print("we allocated 'string': " + string);
+
+print("get the length of string: ")
+print(len(string));

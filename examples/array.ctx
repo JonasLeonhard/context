@@ -1,3 +1,5 @@
+print("array example");
+
 some := [1, 2, 3];
 
 indexed := some[1];

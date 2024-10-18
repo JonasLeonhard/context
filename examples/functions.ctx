@@ -1,0 +1,10 @@
+print("functions example");
+
+add := fn(x, y) {
+    return x + y;
+};
+
+print("calling function add(1, 2)");
+added := add(1, 2);
+
+print(added);

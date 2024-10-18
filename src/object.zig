@@ -113,36 +113,32 @@ pub const Object = union(enum) {
                         .func = lenFunction,
                     },
                 };
-            }
-
-            if (std.mem.eql(u8, name, "first")) {
+            } else if (std.mem.eql(u8, name, "first")) {
                 return Object{ .builtin = .{
                     .name = name,
                     .func = first,
                 } };
-            }
-
-            if (std.mem.eql(u8, name, "last")) {
+            } else if (std.mem.eql(u8, name, "last")) {
                 return Object{ .builtin = .{
                     .name = name,
                     .func = last,
                 } };
-            }
-
-            if (std.mem.eql(u8, name, "rest")) {
+            } else if (std.mem.eql(u8, name, "rest")) {
                 return Object{ .builtin = .{
                     .name = name,
                     .func = rest,
                 } };
-            }
-
-            if (std.mem.eql(u8, name, "push")) {
+            } else if (std.mem.eql(u8, name, "push")) {
                 return Object{ .builtin = .{
                     .name = name,
                     .func = push,
                 } };
+            } else if (std.mem.eql(u8, name, "print")) {
+                return Object{ .builtin = .{
+                    .name = name,
+                    .func = print,
+                } };
             }
-
             return null;
         }
 
@@ -230,6 +226,16 @@ pub const Object = union(enum) {
                     return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'push' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
                 },
             }
+        }
+
+        fn print(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
+            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d} want=1", .{args.len}) } };
+
+            const print_str = try args[0].toString(alloc);
+            defer alloc.free(print_str);
+            std.debug.print("{s}\n", .{print_str});
+
+            return .{ .null = .{} };
         }
 
         pub fn clone(self: Builtin, alloc: std.mem.Allocator) !Builtin {

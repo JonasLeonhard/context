@@ -1,0 +1,16 @@
+print("if example")
+
+some := if (true) {
+  123
+} else {
+    456
+};
+
+print("saved this in 'some': ")
+print(some)
+
+if (some == 123) {
+    print("checked if some has the value 123");
+} else {
+    print("checked if some has the value 456");
+}

@@ -1,0 +1,11 @@
+print("boolean example");
+
+is_the_truth := true;
+is_false := false;
+
+if (is_the_truth) {
+    print("this is true!");
+} else {
+    print("this is false!");
+}
+

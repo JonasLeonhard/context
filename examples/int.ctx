@@ -1,3 +1,5 @@
+print("int example");
+
 some := 1;
 other := 2;
 
