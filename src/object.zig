@@ -1,4 +1,5 @@
 const std = @import("std");
+const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
 const ast = @import("ast.zig");
 const Environment = @import("Environment.zig");
@@ -13,6 +14,7 @@ pub const Object = union(enum) {
     array: Array,
     builtin: Builtin,
     error_: Error,
+    hashmap: HashMap,
 
     pub const Integer = struct {
         value: i64,
@@ -23,7 +25,7 @@ pub const Object = union(enum) {
 
         pub fn clone(self: String, alloc: std.mem.Allocator) !String {
             const owned_value = try alloc.dupe(u8, self.value);
-            return String{ .value = owned_value };
+            return .{ .value = owned_value };
         }
     };
 
@@ -37,7 +39,7 @@ pub const Object = union(enum) {
         pub fn clone(self: *Return, alloc: std.mem.Allocator) anyerror!Return {
             const return_val = try alloc.create(Object);
             return_val.* = try self.value.clone(alloc);
-            return Return{ .value = return_val };
+            return .{ .value = return_val };
         }
     };
 
@@ -46,7 +48,7 @@ pub const Object = union(enum) {
         body: ast.Statement.BlockStatement,
 
         pub fn clone(self: Function, alloc: std.mem.Allocator) !Function {
-            return Function{ .parameters = try self.parameters.clone(), .body = try self.body.clone(alloc) };
+            return .{ .parameters = try self.parameters.clone(), .body = try self.body.clone(alloc) };
         }
     };
 
@@ -62,10 +64,26 @@ pub const Object = union(enum) {
                 try cloned_elements.append(cloned_element);
             }
 
-            return Array{
+            return .{
                 .elements = cloned_elements,
             };
         }
+    };
+
+    pub const HashMap = struct {
+        pairs: StringHashMap(HashPair),
+
+        pub fn clone(self: HashMap, alloc: std.mem.Allocator) anyerror!HashMap {
+            const cloned = try self.pairs.cloneWithAllocator(alloc);
+            return .{
+                .pairs = cloned,
+            };
+        }
+    };
+
+    pub const HashPair = struct {
+        key: []const u8,
+        value: Object,
     };
 
     pub const Builtin = struct {
@@ -114,19 +132,19 @@ pub const Object = union(enum) {
         }
 
         fn lenFunction(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
-            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d}, want=1", .{args.len}) } };
+            if (args.len != 1) return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d}, want=1", .{args.len}) } };
 
             switch (args[0]) {
-                .string => |s| return Object{ .integer = .{ .value = @intCast(s.value.len) } },
-                .array => |a| return Object{ .integer = .{ .value = @intCast(a.elements.items.len) } },
+                .string => |s| return .{ .integer = .{ .value = @intCast(s.value.len) } },
+                .array => |a| return .{ .integer = .{ .value = @intCast(a.elements.items.len) } },
                 else => {
-                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'len' not supported, got {s}. Consider using one of string,array", .{@tagName(args[0])}) } };
+                    return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'len' not supported, got {s}. Consider using one of string,array", .{@tagName(args[0])}) } };
                 },
             }
         }
 
         fn first(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
-            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d}, want=1", .{args.len}) } };
+            if (args.len != 1) return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d}, want=1", .{args.len}) } };
 
             switch (args[0]) {
                 .array => |a| {
@@ -134,16 +152,16 @@ pub const Object = union(enum) {
                         return a.elements.items[0];
                     }
 
-                    return Object{ .null = .{} };
+                    return .{ .null = .{} };
                 },
                 else => {
-                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'first' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
+                    return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'first' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
                 },
             }
         }
 
         fn last(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
-            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d}, want=1", .{args.len}) } };
+            if (args.len != 1) return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d}, want=1", .{args.len}) } };
 
             switch (args[0]) {
                 .array => |a| {
@@ -151,16 +169,16 @@ pub const Object = union(enum) {
                         return a.elements.getLast();
                     }
 
-                    return Object{ .null = .{} };
+                    return .{ .null = .{} };
                 },
                 else => {
-                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'last' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
+                    return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'last' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
                 },
             }
         }
 
         fn rest(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
-            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d} want=1", .{args.len}) } };
+            if (args.len != 1) return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d} want=1", .{args.len}) } };
 
             switch (args[0]) {
                 .array => |a| {
@@ -170,12 +188,12 @@ pub const Object = union(enum) {
                             try new_elements.append(try item.clone(alloc));
                         }
 
-                        return Object{ .array = .{ .elements = new_elements } };
+                        return .{ .array = .{ .elements = new_elements } };
                     }
-                    return Object{ .null = .{} };
+                    return .{ .null = .{} };
                 },
                 else => {
-                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'rest' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
+                    return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'rest' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
                 },
             }
         }
@@ -189,12 +207,12 @@ pub const Object = union(enum) {
                         var new_elements = try a.elements.clone();
                         try new_elements.append(args[1]);
 
-                        return Object{ .array = .{ .elements = new_elements } };
+                        return .{ .array = .{ .elements = new_elements } };
                     }
-                    return Object{ .null = .{} };
+                    return .{ .null = .{} };
                 },
                 else => {
-                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'push' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
+                    return .{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'push' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
                 },
             }
         }
@@ -212,7 +230,7 @@ pub const Object = union(enum) {
 
         pub fn clone(self: Error, alloc: std.mem.Allocator) !Error {
             const owned_value = try alloc.dupe(u8, self.message);
-            return Error{ .message = owned_value };
+            return .{ .message = owned_value };
         }
     };
 
@@ -286,6 +304,27 @@ pub const Object = union(enum) {
                 }
                 try jw.endArray();
             },
+            .hashmap => |*h| {
+                try jw.objectField("type");
+                try jw.write("hashmap");
+                try jw.objectField("entries");
+                try jw.beginArray();
+
+                var entry_iter = h.pairs.iterator();
+                while (entry_iter.next()) |entry| {
+                    const key = entry.key_ptr.*;
+                    const value = entry.value_ptr.*;
+
+                    try jw.beginObject();
+                    try jw.objectField("key");
+                    try jw.write(key);
+
+                    try jw.objectField("value");
+                    try jw.write(value.value);
+                    try jw.endObject();
+                }
+                try jw.endArray();
+            },
             .builtin => |b| {
                 try jw.objectField("type");
                 try jw.write("builtin");
@@ -347,6 +386,30 @@ pub const Object = union(enum) {
 
                 return try std.fmt.allocPrint(allocator, "Array[{s}]", .{elements.items});
             },
+            .hashmap => |*h| {
+                var elements = std.ArrayList(u8).init(allocator);
+                defer elements.deinit();
+                var hash_iterator = h.pairs.iterator();
+                var i: usize = 0;
+
+                while (hash_iterator.next()) |entry| {
+                    if (i > 0) {
+                        try elements.appendSlice(", ");
+                    }
+                    const key = entry.key_ptr.*;
+                    const value = entry.value_ptr.*;
+
+                    const value_str = try value.value.toString(allocator);
+                    defer allocator.free(value_str);
+
+                    const element_str = try std.fmt.allocPrint(allocator, "Entry(key: {s}, value: {s})", .{ key, value_str });
+                    defer allocator.free(element_str);
+                    try elements.appendSlice(element_str);
+                    i += 1;
+                }
+
+                return try std.fmt.allocPrint(allocator, "HashMap {s}", .{elements.items});
+            },
             .builtin => |b| {
                 return try std.fmt.allocPrint(allocator, "Builtin function: {s}", .{b.name});
             },
@@ -365,6 +428,7 @@ pub const Object = union(enum) {
             .boolean => self.*,
             .return_ => |*return_| Object{ .return_ = try return_.clone(alloc) },
             .array => |*array| Object{ .array = try array.clone(alloc) },
+            .hashmap => |hashmap| Object{ .hashmap = try hashmap.clone(alloc) },
             .builtin => |b| Object{ .builtin = try b.clone(alloc) },
             .function => |function| Object{ .function = try function.clone(alloc) },
         };

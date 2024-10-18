@@ -3,8 +3,11 @@ const token = @import("token.zig");
 const Token = token.Token;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
+const StringHashMap = std.StringHashMap;
 
-const Errors = error{};
+const Errors = error{
+    OutOfMemory,
+};
 
 pub const Tree = struct {
     arena: ArenaAllocator,
@@ -25,7 +28,7 @@ pub const Tree = struct {
         self.arena.deinit();
     }
 
-    pub fn jsonStringify(self: Tree, jw: anytype) !void {
+    pub fn jsonStringify(self: Tree, jw: anytype) Errors!void {
         try jw.beginObject();
         try jw.objectField("nodes");
         try jw.beginArray();
@@ -47,7 +50,7 @@ pub const Statement = union(enum) {
         token: Token,
         expr: ?Expression,
 
-        pub fn jsonStringify(self: ReturnStatement, jw: anytype) !void {
+        pub fn jsonStringify(self: ReturnStatement, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("return");
@@ -71,7 +74,7 @@ pub const Statement = union(enum) {
         ident: Expression.Ident,
         expr: ?Expression,
 
-        pub fn jsonStringify(self: DeclareAssignStatement, jw: anytype) !void {
+        pub fn jsonStringify(self: DeclareAssignStatement, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("declare_assign");
@@ -97,7 +100,7 @@ pub const Statement = union(enum) {
         token: Token,
         expr: ?Expression,
 
-        pub fn jsonStringify(self: ExpressionStatement, jw: anytype) !void {
+        pub fn jsonStringify(self: ExpressionStatement, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("expression_statement");
@@ -120,7 +123,7 @@ pub const Statement = union(enum) {
         token: Token,
         statements: ArrayList(Statement),
 
-        pub fn jsonStringify(self: BlockStatement, jw: anytype) !void {
+        pub fn jsonStringify(self: BlockStatement, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("block");
@@ -150,7 +153,7 @@ pub const Statement = union(enum) {
         }
     };
 
-    pub fn jsonStringify(self: Statement, jw: anytype) !void {
+    pub fn jsonStringify(self: Statement, jw: anytype) Errors!void {
         switch (self) {
             .return_ => |s| {
                 try s.jsonStringify(jw);
@@ -166,7 +169,7 @@ pub const Statement = union(enum) {
             },
         }
     }
-    pub fn clone(self: Statement, alloc: std.mem.Allocator) anyerror!Statement {
+    pub fn clone(self: Statement, alloc: std.mem.Allocator) Errors!Statement {
         return switch (self) {
             .return_ => |return_| Statement{ .return_ = try return_.clone(alloc) },
             .declare_assign => |declare_assign| Statement{ .declare_assign = try declare_assign.clone(alloc) },
@@ -190,7 +193,7 @@ pub const Expression = union(enum) {
         token: Token,
         value: []const u8,
 
-        pub fn jsonStringify(self: Ident, jw: anytype) !void {
+        pub fn jsonStringify(self: Ident, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("ident");
@@ -212,7 +215,7 @@ pub const Expression = union(enum) {
         operator: []const u8,
         right: *Expression,
 
-        pub fn jsonStringify(self: Infix, jw: anytype) !void {
+        pub fn jsonStringify(self: Infix, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("infix");
@@ -247,7 +250,7 @@ pub const Expression = union(enum) {
         operator: []const u8,
         right: *Expression,
 
-        pub fn jsonStringify(self: Prefix, jw: anytype) !void {
+        pub fn jsonStringify(self: Prefix, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("prefix");
@@ -276,7 +279,7 @@ pub const Expression = union(enum) {
         consequence: Statement.BlockStatement,
         alternative: ?Statement.BlockStatement,
 
-        pub fn jsonStringify(self: If, jw: anytype) !void {
+        pub fn jsonStringify(self: If, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("if");
@@ -309,7 +312,7 @@ pub const Expression = union(enum) {
         parameters: ArrayList(Ident),
         body: Statement.BlockStatement,
 
-        pub fn jsonStringify(self: Function, jw: anytype) !void {
+        pub fn jsonStringify(self: Function, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("function");
@@ -347,7 +350,7 @@ pub const Expression = union(enum) {
         function: *Expression,
         arguments: ArrayList(Expression),
 
-        pub fn jsonStringify(self: Call, jw: anytype) !void {
+        pub fn jsonStringify(self: Call, jw: anytype) Errors!void {
             try jw.beginObject();
             try jw.objectField("type");
             try jw.write("call");
@@ -445,8 +448,9 @@ pub const Expression = union(enum) {
         float: f64,
         string: []const u8,
         array: ArrayList(Expression),
+        hashmap: StringHashMap(Expression),
 
-        pub fn jsonStringify(self: LiteralValue, jw: anytype) !void {
+        pub fn jsonStringify(self: LiteralValue, jw: anytype) Errors!void {
             switch (self) {
                 .int => |v| {
                     try jw.write(v);
@@ -470,6 +474,20 @@ pub const Expression = union(enum) {
                     }
                     try jw.endArray();
                 },
+                .hashmap => |hashmap| {
+                    try jw.beginObject();
+                    var it = hashmap.iterator();
+                    var index: usize = 0;
+                    while (it.next()) |entry| {
+                        const key = entry.key_ptr.*;
+                        const value = entry.value_ptr.*;
+
+                        try jw.objectField(key);
+                        try jw.write(value);
+                        index += 1;
+                    }
+                    try jw.endObject();
+                },
             }
         }
 
@@ -489,6 +507,10 @@ pub const Expression = union(enum) {
                     }
 
                     return LiteralValue{ .array = new_array };
+                },
+                .hashmap => |v| {
+                    const new_hashmap = try v.cloneWithAllocator(alloc);
+                    return LiteralValue{ .hashmap = new_hashmap };
                 },
             };
         }
@@ -523,7 +545,7 @@ pub const Expression = union(enum) {
         }
     }
 
-    pub fn clone(self: Expression, alloc: std.mem.Allocator) anyerror!Expression {
+    pub fn clone(self: Expression, alloc: std.mem.Allocator) Errors!Expression {
         return switch (self) {
             .ident => |ident| Expression{ .ident = try ident.clone(alloc) },
             .infix => |infix| Expression{ .infix = try infix.clone(alloc) },

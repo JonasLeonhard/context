@@ -11,6 +11,7 @@ const TokenType = @import("token.zig").TokenType;
 const TokenLiteral = @import("token.zig").TokenLiteral;
 
 const ArrayList = std.ArrayList;
+const StringHashMap = std.StringHashMap;
 const assert = std.debug.assert;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
@@ -79,6 +80,7 @@ pub fn init(alloc: std.mem.Allocator, lex: Lexer) !Parser {
     try prefix_parse_fn_map.put(.If, parseIfExpression);
     try prefix_parse_fn_map.put(.Fn, parseFunctionLiteral);
     try prefix_parse_fn_map.put(.OpenBracket, parseArrayLiteral);
+    try prefix_parse_fn_map.put(.OpenBrace, parseHashLiteral);
 
     // registerInfix
     try infix_parse_fn_map.put(.Plus, parseInfixExpression);
@@ -462,6 +464,67 @@ fn parseGroupedExpression(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
     }
 
     return expr;
+}
+
+fn parseHashLiteral(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
+    const start_token = self.cur_token;
+    var hashmap = StringHashMap(ast.Expression).init(ast_tree.arena.allocator());
+
+    while (!self.peekTokenIs(.CloseBrace)) {
+        self.nextToken();
+        const key = try self.parseExpression(ast_tree, .Lowest);
+
+        if (!self.expectPeekAndEat(.Colon)) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "Could not find any color between key and value in HashLiteral. Found this instead: {any}.", .{start_token.type});
+            try self.errors.append(err_msg);
+            return error.HashLiteralMissingColonBetweenKeyAndValue;
+        }
+        self.nextToken();
+
+        const value = try self.parseExpression(ast_tree, .Lowest);
+
+        switch (key) {
+            .literal => |literal| {
+                switch (literal.value) {
+                    .string => |string| {
+                        try hashmap.put(string, value);
+                    },
+                    .int => |int| {
+                        try hashmap.put(try std.fmt.allocPrint(ast_tree.arena.allocator(), "{d}", .{int}), value);
+                    },
+                    else => {
+                        const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "HashLiteral with {any} as Key are not supported. Try using string, or number instead.", .{key});
+                        try self.errors.append(err_msg);
+                        return error.HashLiteralKeyNotSupported;
+                    },
+                }
+            },
+            else => {
+                const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "HashLiteral with {any} as Key are not supported. Try using string, or number instead.", .{key});
+                try self.errors.append(err_msg);
+                return error.HashLiteralKeyNotSupported;
+            },
+        }
+
+        if (!self.peekTokenIs(.CloseBrace) and !self.expectPeekAndEat(.Comma)) {
+            const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "HashLiteral is neither closed nor seperated by comma. Make sure your HashLiteral keyvalue pairs are seperated by comma.", .{});
+            try self.errors.append(err_msg);
+            return error.HashLiteralMissignCommaBetweenEntries;
+        }
+    }
+
+    if (!self.expectPeekAndEat(.CloseBrace)) {
+        const err_msg = try std.fmt.allocPrint(self.arena.allocator(), "HashLiteral is not closed. Make sure to end it with a closing brace.", .{});
+        try self.errors.append(err_msg);
+        return error.HashLiteralNotClosed;
+    }
+
+    return .{
+        .literal = .{
+            .token = start_token,
+            .value = .{ .hashmap = hashmap },
+        },
+    };
 }
 
 fn parseIfExpression(self: *Parser, ast_tree: *ast.Tree) !ast.Expression {
@@ -2521,6 +2584,110 @@ test "Index Expression" {
             \\          "right": {
             \\            "type": "literal",
             \\            "value": 1
+            \\          }
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+    };
+
+    inline for (tests) |case| {
+        try testTreeString(testing.allocator, case[0], case[1]);
+    }
+}
+
+test "HashLiteral key value" {
+    const tests = .{
+        .{
+            \\{ "one": 1, "two": 2, "three": 3 };
+            ,
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": {
+            \\          "one": {
+            \\            "type": "literal",
+            \\            "value": 1
+            \\          },
+            \\          "three": {
+            \\            "type": "literal",
+            \\            "value": 3
+            \\          },
+            \\          "two": {
+            \\            "type": "literal",
+            \\            "value": 2
+            \\          }
+            \\        }
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            \\{};
+            ,
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": {}
+            \\      }
+            \\    }
+            \\  ]
+            \\}
+        },
+        .{
+            \\{ "one": 0 + 1, "two": 10 -8, "three": 15 / 5 };
+            ,
+            \\{
+            \\  "nodes": [
+            \\    {
+            \\      "type": "expression_statement",
+            \\      "expression": {
+            \\        "type": "literal",
+            \\        "value": {
+            \\          "one": {
+            \\            "type": "infix",
+            \\            "operator": "+",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 0
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 1
+            \\            }
+            \\          },
+            \\          "three": {
+            \\            "type": "infix",
+            \\            "operator": "/",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 15
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 5
+            \\            }
+            \\          },
+            \\          "two": {
+            \\            "type": "infix",
+            \\            "operator": "-",
+            \\            "left": {
+            \\              "type": "literal",
+            \\              "value": 10
+            \\            },
+            \\            "right": {
+            \\              "type": "literal",
+            \\              "value": 8
+            \\            }
             \\          }
             \\        }
             \\      }

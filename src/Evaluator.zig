@@ -68,7 +68,7 @@ fn evalExpressionStatement(self: *Evaluator, statement: Statement.ExpressionStat
         return try self.evalExpression(expr, env);
     }
 
-    return Object{
+    return .{
         .error_ = .{
             .message = try std.fmt.allocPrint(self.arena.allocator(), "Missing Expression in ExpressionStatment: {any}", .{statement}),
         },
@@ -85,10 +85,10 @@ fn evalReturnStatement(self: *Evaluator, statement: Statement.ReturnStatement, e
         const val_obj = try self.arena.allocator().create(Object);
         val_obj.* = value;
 
-        return Object{ .return_ = .{ .value = val_obj } };
+        return .{ .return_ = .{ .value = val_obj } };
     }
 
-    return Object{
+    return .{
         .error_ = .{
             .message = try std.fmt.allocPrint(self.arena.allocator(), "Empty expression in ReturnStatement: {any}", .{statement}),
         },
@@ -102,7 +102,7 @@ fn evalDeclareAssignStatement(self: *Evaluator, statement: Statement.DeclareAssi
         return expr_obj;
     }
 
-    return Object{
+    return .{
         .error_ = .{
             .message = try std.fmt.allocPrint(self.arena.allocator(), "Empty expression in DeclareAssignStatment: {any}", .{statement}),
         },
@@ -130,19 +130,19 @@ pub fn evalExpression(self: *Evaluator, expression: Expression, env: *Environmen
     };
 }
 
-fn evalLiteralExpression(self: *Evaluator, literal: Expression.Literal, env: *Environment) !Object {
+fn evalLiteralExpression(self: *Evaluator, literal: Expression.Literal, env: *Environment) anyerror!Object {
     return switch (literal.value) {
         .int => |int_val| {
-            return Object{ .integer = .{ .value = int_val } };
+            return .{ .integer = .{ .value = int_val } };
         },
         .string => |str_val| {
-            return Object{ .string = .{ .value = str_val } };
+            return .{ .string = .{ .value = str_val } };
         },
         .boolean => |bool_val| {
-            return Object{ .boolean = .{ .value = bool_val } };
+            return .{ .boolean = .{ .value = bool_val } };
         },
         .null => {
-            return Object{ .null = .{} };
+            return .{ .null = .{} };
         },
         .array => |array_val| {
             const elements = try self.evalExpressions(array_val.items, env);
@@ -150,7 +150,27 @@ fn evalLiteralExpression(self: *Evaluator, literal: Expression.Literal, env: *En
                 return elements.items[0];
             }
 
-            return Object{ .array = .{ .elements = elements } };
+            return .{ .array = .{ .elements = elements } };
+        },
+        .hashmap => |hashmap_val| {
+            var pairs = std.StringHashMap(Object.HashPair).init(self.arena.allocator());
+
+            var hashmap_iter = hashmap_val.iterator();
+            while (hashmap_iter.next()) |entry| {
+                const key = entry.key_ptr.*;
+                const value = entry.value_ptr.*;
+
+                const evaluated_value = try self.evalExpression(value, env);
+                if (evaluated_value == .error_) {
+                    return evaluated_value;
+                }
+
+                try pairs.put(key, Object.HashPair{ .key = key, .value = evaluated_value });
+            }
+
+            return .{
+                .hashmap = .{ .pairs = pairs },
+            };
         },
         else => {
             std.debug.print("EvalLiteralValueNotImplementedYet for {any}\n", .{literal});
@@ -173,7 +193,7 @@ fn evalPrefixExpression(self: *Evaluator, prefix: Expression.Prefix, env: *Envir
         return try self.evalMinusPrefixOperatorExpression(right);
     }
 
-    return Object{
+    return .{
         .error_ = .{
             .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: {s}{s}", .{ prefix.operator, @tagName(right) }),
         },
@@ -198,22 +218,22 @@ fn evalInfixExpression(self: *Evaluator, infix: Expression.Infix, env: *Environm
     }
 
     if (std.mem.eql(u8, infix.operator, "==")) {
-        return Object{ .boolean = .{ .value = std.meta.eql(left, right) } };
+        return .{ .boolean = .{ .value = std.meta.eql(left, right) } };
     }
 
     if (std.mem.eql(u8, infix.operator, "!=")) {
-        return Object{ .boolean = .{ .value = !std.meta.eql(left, right) } };
+        return .{ .boolean = .{ .value = !std.meta.eql(left, right) } };
     }
 
     if (!std.mem.eql(u8, @tagName(left), @tagName(right))) {
-        return Object{
+        return .{
             .error_ = .{
                 .message = try std.fmt.allocPrint(self.arena.allocator(), "type mismatch: {s} {s} {s}", .{ @tagName(left), infix.operator, @tagName(right) }),
             },
         };
     }
 
-    return Object{
+    return .{
         .error_ = .{
             .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: {s} {s} {s}", .{ @tagName(left), infix.operator, @tagName(right) }),
         },
@@ -232,7 +252,7 @@ fn evalIfExpression(self: *Evaluator, if_: Expression.If, env: *Environment) any
         return try self.evalStatements(alternative.statements, env);
     }
 
-    return Object{ .null = .{} };
+    return .{ .null = .{} };
 }
 
 fn evalIdentExpression(self: *Evaluator, ident: Expression.Ident, env: *Environment) !Object {
@@ -247,7 +267,7 @@ fn evalIdentExpression(self: *Evaluator, ident: Expression.Ident, env: *Environm
         return ident_obj;
     }
 
-    return Object{
+    return .{
         .error_ = .{
             .message = try std.fmt.allocPrint(self.arena.allocator(), "identifier not found: {s}", .{ident.value}),
         },
@@ -296,7 +316,7 @@ fn applyFunction(self: *Evaluator, function: Expression, args: ArrayList(Object)
 
 fn evalFunctionExpression(function: Expression.Function, env: *Environment) !Object {
     const cloned = try function.clone(env.arena.allocator());
-    return Object{
+    return .{
         .function = .{ .body = cloned.body, .parameters = cloned.parameters },
     };
 }
@@ -317,7 +337,7 @@ fn evalIndexExpression(self: *Evaluator, expr: Expression.Index, env: *Environme
         return evalArrayIndexExpression(left.array, index.integer);
     }
 
-    return Object{
+    return .{
         .error_ = .{ .message = try std.fmt.allocPrint(self.arena.allocator(), "index operator not supported: {s}", .{@typeName(@TypeOf(left))}) },
     };
 }
@@ -335,48 +355,48 @@ fn evalArrayIndexExpression(array: Object.Array, index: Object.Integer) Object {
 
 fn evalIntegerInfixExpression(self: *Evaluator, operator: []const u8, left: Object.Integer, right: Object.Integer) !Object {
     if (std.mem.eql(u8, "+", operator)) {
-        return Object{ .integer = .{ .value = left.value + right.value } };
+        return .{ .integer = .{ .value = left.value + right.value } };
     }
 
     if (std.mem.eql(u8, "-", operator)) {
-        return Object{ .integer = .{ .value = left.value - right.value } };
+        return .{ .integer = .{ .value = left.value - right.value } };
     }
 
     if (std.mem.eql(u8, "*", operator)) {
-        return Object{ .integer = .{ .value = left.value * right.value } };
+        return .{ .integer = .{ .value = left.value * right.value } };
     }
 
     if (std.mem.eql(u8, "/", operator)) {
-        return Object{ .integer = .{ .value = @divExact(left.value, right.value) } }; // TODO: is divExact correct here? or @divFloor / @divTrunc
+        return .{ .integer = .{ .value = @divExact(left.value, right.value) } }; // TODO: is divExact correct here? or @divFloor / @divTrunc
     }
 
     if (std.mem.eql(u8, "<", operator)) {
-        return Object{ .boolean = .{ .value = left.value < right.value } };
+        return .{ .boolean = .{ .value = left.value < right.value } };
     }
 
     if (std.mem.eql(u8, ">", operator)) {
-        return Object{ .boolean = .{ .value = left.value > right.value } };
+        return .{ .boolean = .{ .value = left.value > right.value } };
     }
 
     if (std.mem.eql(u8, "==", operator)) {
-        return Object{ .boolean = .{ .value = left.value == right.value } };
+        return .{ .boolean = .{ .value = left.value == right.value } };
     }
 
     if (std.mem.eql(u8, "!=", operator)) {
-        return Object{ .boolean = .{ .value = left.value != right.value } };
+        return .{ .boolean = .{ .value = left.value != right.value } };
     }
 
-    return Object{
+    return .{
         .error_ = .{ .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: integer {s} integer", .{operator}) },
     };
 }
 
 fn evalStringInfixExpression(self: *Evaluator, operator: []const u8, left: Object.String, right: Object.String) !Object {
     if (std.mem.eql(u8, "+", operator)) {
-        return Object{ .string = .{ .value = try std.mem.concat(self.arena.allocator(), u8, &[_][]const u8{ left.value, right.value }) } };
+        return .{ .string = .{ .value = try std.mem.concat(self.arena.allocator(), u8, &[_][]const u8{ left.value, right.value }) } };
     }
 
-    return Object{
+    return .{
         .error_ = .{ .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: integer {s} integer", .{operator}) },
     };
 }
@@ -386,15 +406,15 @@ fn evalBangOperatorExpression(right: Object) !Object {
     switch (right) {
         .boolean => |boolean| {
             if (boolean.value) {
-                return Object{ .boolean = .{ .value = false } };
+                return .{ .boolean = .{ .value = false } };
             }
-            return Object{ .boolean = .{ .value = true } };
+            return .{ .boolean = .{ .value = true } };
         },
         .null => {
-            return Object{ .boolean = .{ .value = true } };
+            return .{ .boolean = .{ .value = true } };
         },
         .integer => {
-            return Object{ .boolean = .{ .value = false } };
+            return .{ .boolean = .{ .value = false } };
         },
         else => {
             return error.EvalBangOperatorExpressionNotImplementedYet;
@@ -405,10 +425,10 @@ fn evalBangOperatorExpression(right: Object) !Object {
 fn evalMinusPrefixOperatorExpression(self: *Evaluator, right: Object) !Object {
     switch (right) {
         .integer => |integer| {
-            return Object{ .integer = .{ .value = -integer.value } };
+            return .{ .integer = .{ .value = -integer.value } };
         },
         else => {
-            return Object{
+            return .{
                 .error_ = .{
                     .message = try std.fmt.allocPrint(self.arena.allocator(), "unknown operator: -{s}", .{@tagName(right)}),
                 },
@@ -1004,7 +1024,7 @@ test "Builtin Function" {
         .{
             \\len(1)
             ,
-            @as([]const u8, "argument to 'len' not supported, got integer"),
+            @as([]const u8, "argument to 'len' not supported, got integer. Consider using one of string,array"),
         },
     };
 
@@ -1106,6 +1126,32 @@ test "Array Indexing" {
                 try testNullObject(evaluated_ast);
             },
             else => @panic(std.fmt.comptimePrint("Builtin Function test type unsupported: {s}", .{@typeName(@TypeOf(test_item[1]))})),
+        }
+    }
+}
+
+test "Hash Literals" {
+    const tests = .{
+        .{
+            \\{ "one": 1, "two": 2, "three": 3 };
+            ,
+            .{
+                .{ "one", 1 },
+                .{ "two", 2 },
+                .{ "three", 3 },
+            },
+        },
+    };
+
+    inline for (tests) |test_item| {
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
+
+        inline for (test_item[1]) |item| {
+            const value_for_expected_key = evaluated_ast.hashmap.pairs.get(item[0]);
+            try testIntegerObject(item[1], value_for_expected_key.?.value);
         }
     }
 }
