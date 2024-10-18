@@ -103,6 +103,13 @@ pub const Object = union(enum) {
                 } };
             }
 
+            if (std.mem.eql(u8, name, "push")) {
+                return Object{ .builtin = .{
+                    .name = name,
+                    .func = push,
+                } };
+            }
+
             return null;
         }
 
@@ -113,7 +120,7 @@ pub const Object = union(enum) {
                 .string => |s| return Object{ .integer = .{ .value = @intCast(s.value.len) } },
                 .array => |a| return Object{ .integer = .{ .value = @intCast(a.elements.items.len) } },
                 else => {
-                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'len' not supported, got {s}", .{@tagName(args[0])}) } };
+                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'len' not supported, got {s}. Consider using one of string,array", .{@tagName(args[0])}) } };
                 },
             }
         }
@@ -130,7 +137,7 @@ pub const Object = union(enum) {
                     return Object{ .null = .{} };
                 },
                 else => {
-                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'first' not supported, got {s}", .{@tagName(args[0])}) } };
+                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'first' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
                 },
             }
         }
@@ -147,13 +154,13 @@ pub const Object = union(enum) {
                     return Object{ .null = .{} };
                 },
                 else => {
-                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'last' not supported, got {s}", .{@tagName(args[0])}) } };
+                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'last' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
                 },
             }
         }
 
         fn rest(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
-            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d} want=2", .{args.len}) } };
+            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d} want=1", .{args.len}) } };
 
             switch (args[0]) {
                 .array => |a| {
@@ -168,7 +175,26 @@ pub const Object = union(enum) {
                     return Object{ .null = .{} };
                 },
                 else => {
-                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'rest' not supported, got {s}", .{@tagName(args[0])}) } };
+                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'rest' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
+                },
+            }
+        }
+
+        fn push(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
+            if (args.len != 2) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d} want=2", .{args.len}) } };
+
+            switch (args[0]) {
+                .array => |a| {
+                    if (a.elements.items.len > 0) {
+                        var new_elements = try a.elements.clone();
+                        try new_elements.append(args[1]);
+
+                        return Object{ .array = .{ .elements = new_elements } };
+                    }
+                    return Object{ .null = .{} };
+                },
+                else => {
+                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'push' not supported, got {s}. Consider using array instead.", .{@tagName(args[0])}) } };
                 },
             }
         }
