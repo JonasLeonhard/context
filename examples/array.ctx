@@ -4,3 +4,4 @@ indexed := some[1];
 length := len(some);
 first := first(some);
 last := last(some);
+rest := rest(some);

@@ -1,4 +1,5 @@
 const std = @import("std");
+const ArrayList = std.ArrayList;
 const ast = @import("ast.zig");
 const Environment = @import("Environment.zig");
 
@@ -95,6 +96,13 @@ pub const Object = union(enum) {
                 } };
             }
 
+            if (std.mem.eql(u8, name, "rest")) {
+                return Object{ .builtin = .{
+                    .name = name,
+                    .func = rest,
+                } };
+            }
+
             return null;
         }
 
@@ -140,6 +148,27 @@ pub const Object = union(enum) {
                 },
                 else => {
                     return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'last' not supported, got {s}", .{@tagName(args[0])}) } };
+                },
+            }
+        }
+
+        fn rest(args: []const Object, alloc: std.mem.Allocator) anyerror!Object {
+            if (args.len != 1) return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "wrong number of arguments. got={d} want=2", .{args.len}) } };
+
+            switch (args[0]) {
+                .array => |a| {
+                    if (a.elements.items.len > 0) {
+                        var new_elements = ArrayList(Object).init(alloc);
+                        for (a.elements.items[1..]) |*item| {
+                            try new_elements.append(try item.clone(alloc));
+                        }
+
+                        return Object{ .array = .{ .elements = new_elements } };
+                    }
+                    return Object{ .null = .{} };
+                },
+                else => {
+                    return Object{ .error_ = .{ .message = try std.fmt.allocPrint(alloc, "argument to 'rest' not supported, got {s}", .{@tagName(args[0])}) } };
                 },
             }
         }
