@@ -16,8 +16,9 @@ pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
     const params = comptime clap.parseParamsComptime(
-        \\-h, --help             Display this help and exit.
-        \\-t, --tree             Output the ast tree as json.
+        \\-h,  --help            Display this help and exit.
+        \\-t,  --tree            Output the ast tree as json.
+        \\-T,  --token           Output the tokens as json.
         \\<str>...               Filepath to execute.
         \\                       If the filepath is empty, start a repl
     );
@@ -38,20 +39,12 @@ pub fn main() !void {
     defer repl.deinit();
 
     if (res.positionals.len == 0) {
-        if (res.args.tree != 0) {
-            try repl.repl_eval_to_ast();
-        } else {
-            try repl.repl_eval();
-        }
+        try repl.repl_eval(res.args.tree, res.args.token);
     } else {
         const file_path = res.positionals[0];
         const file_contents = try std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024); // 1MB limit
         defer alloc.free(file_contents);
 
-        if (res.args.tree != 0) {
-            try repl.eval_to_ast(file_path, file_contents);
-        } else {
-            try repl.eval(file_path, file_contents);
-        }
+        try repl.eval(file_path, file_contents, res.args.tree, res.args.token);
     }
 }
