@@ -337,6 +337,10 @@ fn evalIndexExpression(self: *Evaluator, expr: Expression.Index, env: *Environme
         return evalArrayIndexExpression(left.array, index.integer);
     }
 
+    if (left == .hashmap) {
+        return try self.evalHashMapIndexExpression(left.hashmap, index);
+    }
+
     return .{
         .error_ = .{ .message = try std.fmt.allocPrint(self.arena.allocator(), "index operator not supported: {s}", .{@typeName(@TypeOf(left))}) },
     };
@@ -351,6 +355,37 @@ fn evalArrayIndexExpression(array: Object.Array, index: Object.Integer) Object {
     }
 
     return array.elements.items[@intCast(idx)];
+}
+
+fn evalHashMapIndexExpression(self: *Evaluator, hashmap: Object.HashMap, index: Object) !Object {
+    switch (index) {
+        .integer => |int| {
+            const alloc = self.arena.allocator();
+            const str_int = try std.fmt.allocPrint(alloc, "{d}", .{int.value});
+            defer alloc.free(str_int);
+            const hash_pair = hashmap.pairs.get(str_int);
+
+            if (hash_pair) |pair| {
+                return pair.value;
+            }
+
+            return .{ .null = .{} };
+        },
+        .string => |string| {
+            const hash_pair = hashmap.pairs.get(string.value);
+
+            if (hash_pair) |pair| {
+                return pair.value;
+            }
+
+            return .{ .null = .{} };
+        },
+        else => {
+            return .{
+                .error_ = .{ .message = try std.fmt.allocPrint(self.arena.allocator(), "index operator not supported for hash key of type: {s}. Use one of integer,string.", .{@typeName(@TypeOf(index))}) },
+            };
+        },
+    }
 }
 
 fn evalIntegerInfixExpression(self: *Evaluator, operator: []const u8, left: Object.Integer, right: Object.Integer) !Object {
@@ -1152,6 +1187,53 @@ test "Hash Literals" {
         inline for (test_item[1]) |item| {
             const value_for_expected_key = evaluated_ast.hashmap.pairs.get(item[0]);
             try testIntegerObject(item[1], value_for_expected_key.?.value);
+        }
+    }
+}
+
+test "Hash Literal Indexing" {
+    const tests = .{
+        .{
+            \\{ "foo": 5 }["foo"];
+            ,
+            5,
+        },
+        .{
+            \\{ "foo": 5 }["bar"];
+            ,
+            null,
+        },
+        .{
+            \\key := "foo"; { "foo": 5 }[key];
+            ,
+            5,
+        },
+        .{
+            \\{}["foo"];
+            ,
+            null,
+        },
+        .{
+            \\{5: 5}[5];
+            ,
+            5,
+        },
+    };
+
+    inline for (tests) |test_item| {
+        var evaluator = Evaluator.init(testing.allocator);
+        defer evaluator.deinit();
+
+        const evaluated_ast = try testEvalToObject(testing.allocator, &evaluator, test_item[0]);
+
+        switch (@TypeOf(test_item[1])) {
+            comptime_int => {
+                try testIntegerObject(test_item[1], evaluated_ast);
+            },
+            @TypeOf(null) => {
+                try testNullObject(evaluated_ast);
+            },
+            else => @panic(std.fmt.comptimePrint("Builtin Function test type unsupported: {s}", .{@typeName(@TypeOf(test_item[1]))})),
         }
     }
 }

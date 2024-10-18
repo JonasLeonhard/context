@@ -74,9 +74,15 @@ pub const Object = union(enum) {
         pairs: StringHashMap(HashPair),
 
         pub fn clone(self: HashMap, alloc: std.mem.Allocator) anyerror!HashMap {
-            const cloned = try self.pairs.cloneWithAllocator(alloc);
+            var cloned_pairs = StringHashMap(HashPair).init(alloc);
+
+            var pair_iter = self.pairs.iterator();
+            while (pair_iter.next()) |pair| {
+                const cloned_hash_pair = try pair.value_ptr.clone(alloc);
+                try cloned_pairs.put(cloned_hash_pair.key, cloned_hash_pair);
+            }
             return .{
-                .pairs = cloned,
+                .pairs = cloned_pairs,
             };
         }
     };
@@ -84,6 +90,15 @@ pub const Object = union(enum) {
     pub const HashPair = struct {
         key: []const u8,
         value: Object,
+
+        pub fn clone(self: *HashPair, alloc: std.mem.Allocator) anyerror!HashPair {
+            const cloned_key = try alloc.dupe(u8, self.key);
+            const cloned_value = try self.value.clone(alloc);
+            return .{
+                .key = cloned_key,
+                .value = cloned_value,
+            };
+        }
     };
 
     pub const Builtin = struct {

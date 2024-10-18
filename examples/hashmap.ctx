@@ -1,1 +1,5 @@
-some_hashmap := { "one": 1, "two": "value", "three": 1 + 14 };
+some_hashmap := { 1: 123, "one": 1, "two": "value", "three": 1 + 14 };
+
+some[1];
+some["one"];
+
